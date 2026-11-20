@@ -10,9 +10,13 @@ without the built-in Azure DevOps integration. Install it from the plugin
 catalog in **Settings > Plugins**.
 
 - **Connection:** Settings > Integrations > Azure DevOps connects a workspace
-  with a Personal Access Token or a Microsoft account. It tests the
-  connection, picks a default project, copies settings from another workspace
-  (never a token), and removes it. A health probe runs every 90 seconds.
+  with a Personal Access Token, a Microsoft account, or Azure CLI (`az login`).
+  It tests the connection, picks a default project, copies settings from
+  another workspace (never a token), and removes it. A health probe runs every
+  90 seconds.
+- **Azure CLI:** authenticates through the Kandev host's `az` session (`az
+  account get-access-token` for the Azure DevOps Entra resource), caching
+  short-lived access tokens in memory without storing credentials in Kandev.
 - **Enable switch:** the integrations card and the settings header turn the
   integration on or off per workspace and per user. It only controls the
   settings menu badge and row; connections, watches, and credentials keep

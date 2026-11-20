@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"kandev-plugin-azure-devops/internal/auth"
 	"kandev-plugin-azure-devops/internal/azure"
 )
 
@@ -484,6 +485,10 @@ func browseError(err error) error {
 	}
 	if errors.Is(err, azure.ErrReauthRequired) {
 		return failedPrecondition(errReauthRequired)
+	}
+	var azErr *auth.AzCLIError
+	if errors.As(err, &azErr) {
+		return failedPrecondition(azErr)
 	}
 	if errors.Is(err, azure.ErrInvalidConfig) {
 		return invalidArgument(err)

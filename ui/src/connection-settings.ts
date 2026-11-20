@@ -167,10 +167,38 @@ function AuthMethodField({ host, t, form, setForm, disabled }: FieldProps) {
       host.jsx(
         host.ui.SelectContent,
         {},
-        host.jsx(host.ui.SelectItem, { value: "pat" }, t("personalAccessToken")),
+        host.jsx(host.ui.SelectItem, { value: "pat", "data-testid": "azure-devops-auth-pat" }, t("personalAccessToken")),
         host.jsx(host.ui.SelectItem, { value: "oauth", "data-testid": "azure-devops-auth-oauth" }, t("authMethodMicrosoft")),
+        host.jsx(host.ui.SelectItem, { value: "azure_cli", "data-testid": "azure-devops-auth-azure-cli" }, t("authMethodAzureCli")),
       ),
     ),
+  );
+}
+
+const AZ_LOGIN_COMMAND = "az login";
+
+function AzureCliAccount({
+  host,
+  t,
+  connection,
+}: {
+  host: PluginHostApi;
+  t: Translate;
+  connection: ConnectionView | null;
+}) {
+  const connected =
+    connection?.authMethod === "azure_cli" && connection.hasSecret && !connection.reauthRequired && connection.lastOk;
+  return host.jsx(
+    "div",
+    { className: "space-y-1.5 rounded-md border p-3", "data-testid": "azure-devops-azure-cli" },
+    connected
+      ? host.jsx(
+          "p",
+          { className: "text-sm font-medium", "data-testid": "azure-devops-azure-cli-status" },
+          t("azureCliConnected"),
+        )
+      : null,
+    help(host, t("azureCliHelp", { values: { command: AZ_LOGIN_COMMAND } }), "azure-devops-azure-cli-help"),
   );
 }
 
@@ -611,10 +639,12 @@ function useConnectionController(host: PluginHostApi, workspaceId: string, t: Tr
 function Actions({ host, t, controller, mobile }: { host: PluginHostApi; t: Translate; controller: Controller; mobile: boolean }) {
   const { connection, form, busy } = controller;
   const validOrganization = isOrganizationUrl(form.organizationUrl);
-  const microsoft = form.authMethod === "oauth";
-  const hasToken = microsoft
-    ? microsoftSettingsSavable(connection, form)
-    : form.pat.trim() !== "" || storedTokenApplies(connection, form);
+  const hasToken =
+    form.authMethod === "oauth"
+      ? microsoftSettingsSavable(connection, form)
+      : form.authMethod === "azure_cli"
+        ? true
+        : form.pat.trim() !== "" || storedTokenApplies(connection, form);
   const fullWidth = mobile ? { width: "100%" } : undefined;
   const test = host.jsx(
     host.ui.Button,
@@ -673,7 +703,7 @@ function WorkspaceConnection({ host, workspaceId }: { host: PluginHostApi; works
     "div",
     { className: "space-y-4", "data-testid": "azure-devops-settings" },
     host.jsx(host.ui.IntegrationAuthStatusBanner, { health: healthFromConnection(connection) }),
-    connection?.reauthRequired && connection.authMethod !== "oauth"
+    connection?.reauthRequired && (connection.authMethod ?? "pat") === "pat"
       ? host.jsx(
           host.ui.Alert,
           { "data-testid": "azure-devops-reauth-required" },
@@ -690,7 +720,9 @@ function WorkspaceConnection({ host, workspaceId }: { host: PluginHostApi; works
         host.jsx(AuthMethodField, { host, t, form, setForm, disabled: disabled || controller.signIn.completing }),
         form.authMethod === "oauth"
           ? host.jsx(MicrosoftAccount, { host, t, controller, mobile })
-          : host.jsx(TokenField, { host, t, form, setForm, disabled, connection }),
+          : form.authMethod === "azure_cli"
+            ? host.jsx(AzureCliAccount, { host, t, connection })
+            : host.jsx(TokenField, { host, t, form, setForm, disabled, connection }),
         host.jsx(ProjectField, { host, t, form, setForm, disabled, projects: controller.projects }),
         host.jsx(Actions, { host, t, controller, mobile }),
       ),

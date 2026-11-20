@@ -26,7 +26,7 @@ export type Project = { id: string; name: string };
 
 export type WorkspaceSummary = { id: string; name: string; configured: boolean };
 
-export type AuthMethod = "pat" | "oauth";
+export type AuthMethod = "pat" | "oauth" | "azure_cli";
 
 export type ConnectionForm = {
   organizationUrl: string;
@@ -54,13 +54,19 @@ export const EMPTY_FORM: ConnectionForm = {
 
 export function formFromConnection(connection: ConnectionView | null): ConnectionForm {
   if (!connection?.configured) return EMPTY_FORM;
+  const authMethod: AuthMethod =
+    connection.authMethod === "oauth"
+      ? "oauth"
+      : connection.authMethod === "azure_cli"
+        ? "azure_cli"
+        : "pat";
   return {
     organizationUrl: connection.organizationUrl ?? "",
     defaultProjectId: connection.defaultProjectId ?? "",
     defaultProjectName: connection.defaultProjectName ?? "",
-    authMethod: connection.authMethod === "oauth" ? "oauth" : "pat",
+    authMethod,
     pat: "",
-    clientId: connection.authMethod === "oauth" ? (connection.oauthClientId ?? "") : "",
+    clientId: authMethod === "oauth" ? (connection.oauthClientId ?? "") : "",
   };
 }
 
@@ -114,9 +120,14 @@ export function connectionFormState(connection: ConnectionView | null, form: Con
     if (!isOrganizationUrl(form.organizationUrl)) issue = "invalidOrganizationUrl";
     else if (!sameOrganization) issue = "oauthSignInForOrganization";
     else if (!microsoftSettingsSavable(connection, form)) issue = "oauthReauthRequired";
+  } else if (form.authMethod === "azure_cli") {
+    dirty = connection
+      ? connection.authMethod !== "azure_cli" || connection.reauthRequired || !sameOrganization || projectChanged
+      : true;
+    if (!isOrganizationUrl(form.organizationUrl)) issue = "invalidOrganizationUrl";
   } else {
     dirty = connection
-      ? connection.authMethod === "oauth" || !sameOrganization || projectChanged || form.pat.trim() !== ""
+      ? (connection.authMethod ?? "pat") !== "pat" || !sameOrganization || projectChanged || form.pat.trim() !== ""
       : form.organizationUrl.trim() !== "" || form.pat.trim() !== "";
     if (!isOrganizationUrl(form.organizationUrl)) issue = "invalidOrganizationUrl";
     else if (form.pat.trim() === "" && !storedTokenApplies(connection, form)) issue = "personalAccessTokenRequired";
@@ -191,7 +202,7 @@ export function personalAccessTokenUrl(organizationUrl: string): string | null {
 export function storedTokenApplies(connection: ConnectionView | null, form: ConnectionForm): boolean {
   return (
     !!connection?.configured &&
-    connection.authMethod !== "oauth" &&
+    (connection.authMethod ?? "pat") === "pat" &&
     connection.hasSecret &&
     !connection.reauthRequired &&
     normalizeOrganizationUrl(connection.organizationUrl ?? "") ===
@@ -240,6 +251,7 @@ export function createConnectionApi(host: PluginHostApi, workspaceId: string) {
     async test(form: ConnectionForm): Promise<TestResult> {
       const response = await invoke<Envelope<"result", TestResult>>("connection.test", {
         organizationUrl: normalizeOrganizationUrl(form.organizationUrl),
+        authMethod: form.authMethod,
         pat: form.authMethod === "pat" ? form.pat.trim() : "",
       });
       return response.result ?? { ok: false };

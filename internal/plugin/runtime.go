@@ -30,6 +30,7 @@ type Runtime struct {
 
 	newClient ClientFactory
 	entra     auth.IdentityProvider
+	azCLI     auth.AzureCLIProvider
 	mu        sync.RWMutex
 	services  *services
 	cancel    context.CancelFunc
@@ -64,7 +65,7 @@ const MockModeEnv = "KANDEV_AZURE_DEVOPS_PLUGIN_MOCK"
 func NewRuntime() *Runtime {
 	if os.Getenv(MockModeEnv) == "true" {
 		if mock, err := azure.NewSeededMockClient(); err == nil {
-			return NewRuntimeWith(func(string, azure.Authorizer) Client { return mock }, &auth.MockEntra{})
+			return NewRuntimeWithProviders(func(string, azure.Authorizer) Client { return mock }, &auth.MockEntra{}, &auth.MockAzureCLI{})
 		}
 	}
 	return NewRuntimeWith(nil, nil)
@@ -73,7 +74,13 @@ func NewRuntime() *Runtime {
 // NewRuntimeWith returns a runtime with injected Azure DevOps and Microsoft
 // identity clients (tests use in-memory fakes); nil selects the real ones.
 func NewRuntimeWith(newClient ClientFactory, entra auth.IdentityProvider) *Runtime {
-	return &Runtime{newClient: newClient, entra: entra}
+	return NewRuntimeWithProviders(newClient, entra, nil)
+}
+
+// NewRuntimeWithProviders returns a runtime with injected Azure DevOps,
+// Microsoft identity, and Azure CLI clients; nil selects the real ones.
+func NewRuntimeWithProviders(newClient ClientFactory, entra auth.IdentityProvider, azCLI auth.AzureCLIProvider) *Runtime {
+	return &Runtime{newClient: newClient, entra: entra, azCLI: azCLI}
 }
 
 // SetHost wires the services and starts the health poller.
@@ -94,6 +101,7 @@ func (r *Runtime) SetHost(host pluginsdk.Host) {
 	connections := NewConnections(stateStore, ConnectionsOptions{
 		NewClient: r.newClient,
 		Entra:     r.entra,
+		AzureCLI:  r.azCLI,
 		Config:    host.GetConfig,
 		StateKeys: stateKeys,
 	})

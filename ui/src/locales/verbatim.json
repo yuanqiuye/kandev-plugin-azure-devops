@@ -1,5 +1,6 @@
 {
   "pt-pt": {
+    "authMethodAzureCli": "Product name.",
     "azureDevOps": "Product name.",
     "childCountTyped": "Placeholder frame; the type is the Azure DevOps work-item type name.",
     "fallbackAuthor": "Product name used as the author fallback.",
@@ -15,24 +16,28 @@
     "sprints": "European Portuguese Azure DevOps and Scrum usage keeps the term 'Sprints'."
   },
   "zh-cn": {
+    "authMethodAzureCli": "Product name.",
     "azureDevOps": "Product name.",
     "childCountTyped": "Placeholder frame; the type is the Azure DevOps work-item type name.",
     "fallbackAuthor": "Product name used as the author fallback.",
     "pullRequestSubtitle": "Placeholder frame; PR is an acronym."
   },
   "zh-hk": {
+    "authMethodAzureCli": "Product name.",
     "azureDevOps": "Product name.",
     "childCountTyped": "Placeholder frame; the type is the Azure DevOps work-item type name.",
     "fallbackAuthor": "Product name used as the author fallback.",
     "pullRequestSubtitle": "Placeholder frame; PR is an acronym."
   },
   "zh-tw": {
+    "authMethodAzureCli": "Product name.",
     "azureDevOps": "Product name.",
     "childCountTyped": "Placeholder frame; the type is the Azure DevOps work-item type name.",
     "fallbackAuthor": "Product name used as the author fallback.",
     "pullRequestSubtitle": "Placeholder frame; PR is an acronym."
   },
   "ja": {
+    "authMethodAzureCli": "Product name.",
     "azureDevOps": "Product name.",
     "childCountTyped": "Placeholder frame; the type is the Azure DevOps work-item type name.",
     "fallbackAuthor": "Product name used as the author fallback.",
@@ -40,6 +45,7 @@
     "presetIconEye": "Icon name; Kandev keeps it in English in Japanese."
   },
   "ko": {
+    "authMethodAzureCli": "Product name.",
     "azureDevOps": "Product name.",
     "childCountTyped": "Placeholder frame; the type is the Azure DevOps work-item type name.",
     "fallbackAuthor": "Product name used as the author fallback.",

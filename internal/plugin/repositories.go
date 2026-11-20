@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"kandev-plugin-azure-devops/internal/auth"
 	"kandev-plugin-azure-devops/internal/azure"
 	"kandev-plugin-azure-devops/internal/sourcecontrol"
 )
@@ -225,6 +226,10 @@ func repositoryReadError(err error) error {
 	}
 	if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 		return failedPrecondition(errors.New("Azure DevOps rejected the stored credentials; update them in settings"))
+	}
+	var azErr *auth.AzCLIError
+	if errors.As(err, &azErr) {
+		return failedPrecondition(azErr)
 	}
 	return err
 }

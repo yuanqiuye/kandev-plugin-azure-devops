@@ -70,6 +70,28 @@ test("signs in with a Microsoft account through the mock authority", async ({ pa
   await connectWithPAT(request, await workspaceId(request));
 });
 
+test("connects a workspace with Azure CLI through the mock provider", async ({ page, request }) => {
+  await openSettings(page);
+  await page.getByTestId("azure-devops-auth-method").click();
+  await page.getByTestId("azure-devops-auth-azure-cli").click();
+  await expect(page.getByTestId("azure-devops-azure-cli")).toBeVisible();
+  await expect(page.getByTestId("azure-devops-pat")).toHaveCount(0);
+  await saveChanges(page).click();
+  await expect(saveBar(page)).not.toBeVisible();
+  await expect(page.getByTestId("azure-devops-azure-cli-status")).toBeVisible();
+
+  const workspace = await workspaceId(request);
+  const stored = await action<{ connection: { authMethod?: string; hasSecret?: boolean } }>(
+    request,
+    "connection.get",
+    { workspaceId: workspace, body: {} },
+  );
+  expect(stored.connection.authMethod).toBe("azure_cli");
+  expect(stored.connection.hasSecret).toBe(true);
+
+  await connectWithPAT(request, workspace);
+});
+
 test("loads the quick actions once and keeps them editable", async ({ page }) => {
   let loads = 0;
   page.on("request", (request) => {

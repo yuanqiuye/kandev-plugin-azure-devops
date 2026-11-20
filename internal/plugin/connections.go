@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kdlbs/kandev/pluginsdk"
@@ -56,8 +57,11 @@ type Connections struct {
 	flows     *store.Flows
 	newClient ClientFactory
 	entra     auth.IdentityProvider
+	azCLI     auth.AzureCLIProvider
 	config    func(context.Context) (map[string]any, error)
 	locks     workspaceLocks
+	azCacheMu sync.Mutex
+	azTokens  map[string]cachedAzToken
 	now       func() time.Time
 }
 
@@ -65,6 +69,7 @@ type Connections struct {
 type ConnectionsOptions struct {
 	NewClient ClientFactory
 	Entra     auth.IdentityProvider
+	AzureCLI  auth.AzureCLIProvider
 	// Config returns the plugin's operator settings (default_oauth_client_id).
 	Config func(context.Context) (map[string]any, error)
 	// StateKeys lists a workspace's state keys, for purging sign-in flows.
@@ -79,12 +84,16 @@ func NewConnections(s *store.Store, options ConnectionsOptions) *Connections {
 	if options.Entra == nil {
 		options.Entra = auth.NewEntraClient()
 	}
+	if options.AzureCLI == nil {
+		options.AzureCLI = auth.NewAzCLIClient()
+	}
 	if options.Config == nil {
 		options.Config = func(context.Context) (map[string]any, error) { return map[string]any{}, nil }
 	}
 	return &Connections{
 		store: s, flows: store.NewFlows(s, options.StateKeys), newClient: options.NewClient,
-		entra: options.Entra, config: options.Config, now: time.Now,
+		entra: options.Entra, azCLI: options.AzureCLI, config: options.Config,
+		azTokens: make(map[string]cachedAzToken), now: time.Now,
 	}
 }
 
@@ -94,11 +103,15 @@ func (c *Connections) Get(ctx context.Context, workspaceID string) (ConnectionVi
 	if err != nil || !found {
 		return ConnectionView{}, err
 	}
-	secretKey := store.PATKey(workspaceID)
-	if connection.AuthMethod == store.AuthMethodOAuth {
-		secretKey = store.OAuthRefreshKey(workspaceID)
+	var hasSecret bool
+	switch connection.AuthMethod {
+	case store.AuthMethodOAuth:
+		_, hasSecret, err = c.store.Secret(ctx, store.OAuthRefreshKey(workspaceID))
+	case store.AuthMethodAzureCLI:
+		hasSecret = !connection.ReauthRequired
+	default:
+		_, hasSecret, err = c.store.Secret(ctx, store.PATKey(workspaceID))
 	}
-	_, hasSecret, err := c.store.Secret(ctx, secretKey)
 	if err != nil {
 		return ConnectionView{}, err
 	}
@@ -127,10 +140,19 @@ func (c *Connections) Save(ctx context.Context, workspaceID string, input Connec
 		return ConnectionView{}, invalidArgument(err)
 	}
 	var changed bool
-	if strings.TrimSpace(input.AuthMethod) == store.AuthMethodOAuth {
-		err = c.saveOAuthSettings(ctx, workspaceID, organizationURL, input)
-	} else {
+	method := strings.TrimSpace(input.AuthMethod)
+	if method == "" {
+		method = store.AuthMethodPAT
+	}
+	switch method {
+	case store.AuthMethodPAT:
 		changed, err = c.savePAT(ctx, workspaceID, organizationURL, input)
+	case store.AuthMethodOAuth:
+		err = c.saveOAuthSettings(ctx, workspaceID, organizationURL, input)
+	case store.AuthMethodAzureCLI:
+		err = c.saveAzureCLI(ctx, workspaceID, organizationURL, input)
+	default:
+		err = invalidArgument(errors.New("unsupported authentication method"))
 	}
 	if err != nil {
 		return ConnectionView{}, err
@@ -172,12 +194,12 @@ func (c *Connections) savePAT(ctx context.Context, workspaceID, organizationURL 
 	if err != nil {
 		return false, err
 	}
-	wasOAuth := found && previous.AuthMethod == store.AuthMethodOAuth
+	wasNonPAT := found && previous.AuthMethod != store.AuthMethodPAT && previous.AuthMethod != ""
 	pat := strings.TrimSpace(input.PAT)
-	if pat == "" && (!hadPAT || wasOAuth || (found && previous.ReauthRequired)) {
+	if pat == "" && (!hadPAT || wasNonPAT || (found && previous.ReauthRequired)) {
 		return false, invalidArgument(errPATRequired)
 	}
-	changed := !found || wasOAuth || previous.OrganizationURL != organizationURL || (pat != "" && pat != previousPAT)
+	changed := !found || wasNonPAT || previous.OrganizationURL != organizationURL || (pat != "" && pat != previousPAT)
 	next := store.Connection{
 		OrganizationURL: organizationURL, AuthMethod: store.AuthMethodPAT,
 		DefaultProjectID:   strings.TrimSpace(input.DefaultProjectID),
@@ -195,8 +217,9 @@ func (c *Connections) savePAT(ctx context.Context, workspaceID, organizationURL 
 	if err := c.store.SaveConnection(ctx, workspaceID, next); err != nil {
 		return false, errors.Join(err, c.restorePAT(ctx, workspaceID, pat != "", previousPAT, hadPAT))
 	}
-	if wasOAuth {
+	if wasNonPAT {
 		c.discardOAuthTokens(ctx, workspaceID)
+		c.clearAzCLIToken(workspaceID)
 	}
 	return changed, nil
 }
@@ -225,13 +248,24 @@ func (c *Connections) Test(ctx context.Context, workspaceID string, input Connec
 	if err != nil {
 		return nil, invalidArgument(err)
 	}
+	method := strings.TrimSpace(input.AuthMethod)
+	if method != "" && method != store.AuthMethodPAT && method != store.AuthMethodOAuth && method != store.AuthMethodAzureCLI {
+		return nil, invalidArgument(errors.New("unsupported authentication method"))
+	}
+	if method == store.AuthMethodAzureCLI {
+		return c.testAzureCLI(ctx, organizationURL)
+	}
 	var client Client
-	if pat := strings.TrimSpace(input.PAT); pat != "" {
+	if pat := strings.TrimSpace(input.PAT); pat != "" && method != store.AuthMethodOAuth {
 		client = c.newClient(organizationURL, azure.NewPATAuthorizer(pat))
 	} else {
 		stored, connection, err := c.Client(ctx, workspaceID)
-		if err != nil || connection.OrganizationURL != organizationURL {
-			if connection.AuthMethod == store.AuthMethodOAuth {
+		storedMethod := connection.AuthMethod
+		if storedMethod == "" {
+			storedMethod = store.AuthMethodPAT
+		}
+		if err != nil || connection.OrganizationURL != organizationURL || (method != "" && storedMethod != method) {
+			if method == store.AuthMethodOAuth || (method == "" && connection.AuthMethod == store.AuthMethodOAuth) {
 				return nil, invalidArgument(errSignInForOrganization)
 			}
 			return nil, invalidArgument(errPATRequired)
@@ -267,6 +301,9 @@ func (c *Connections) Copy(ctx context.Context, targetWorkspaceID, sourceWorkspa
 	if err := c.copyInto(ctx, targetWorkspaceID, source); err != nil {
 		return ConnectionView{}, err
 	}
+	if source.AuthMethod == store.AuthMethodAzureCLI {
+		c.RecordHealth(ctx, targetWorkspaceID)
+	}
 	return c.Get(ctx, targetWorkspaceID)
 }
 
@@ -281,12 +318,15 @@ func (c *Connections) copyInto(ctx context.Context, targetWorkspaceID string, so
 	if err != nil {
 		return err
 	}
-	keepPAT := source.AuthMethod != store.AuthMethodOAuth && targetFound && targetHasPAT &&
-		target.AuthMethod == store.AuthMethodPAT && !target.ReauthRequired && target.OrganizationURL == source.OrganizationURL
+	sourceIsPAT := source.AuthMethod == store.AuthMethodPAT || source.AuthMethod == ""
+	targetIsPAT := target.AuthMethod == store.AuthMethodPAT || target.AuthMethod == ""
+	keepPAT := sourceIsPAT && targetFound && targetHasPAT &&
+		targetIsPAT && !target.ReauthRequired && target.OrganizationURL == source.OrganizationURL
+	reauthRequired := !keepPAT && source.AuthMethod != store.AuthMethodAzureCLI
 	next := store.Connection{
 		OrganizationURL: source.OrganizationURL, AuthMethod: source.AuthMethod,
 		DefaultProjectID: source.DefaultProjectID, DefaultProjectName: source.DefaultProjectName,
-		ReauthRequired: !keepPAT, Generation: target.Generation, UpdatedAt: c.now().UTC(),
+		ReauthRequired: reauthRequired, Generation: target.Generation, UpdatedAt: c.now().UTC(),
 	}
 	if next.AuthMethod == "" {
 		next.AuthMethod = store.AuthMethodPAT
@@ -294,11 +334,14 @@ func (c *Connections) copyInto(ctx context.Context, targetWorkspaceID string, so
 	if next.AuthMethod == store.AuthMethodOAuth {
 		next.OAuthClientID = source.OAuthClientID
 	}
+	if next.AuthMethod == store.AuthMethodAzureCLI {
+		next.OAuthTenantID = source.OAuthTenantID
+	}
 	if keepPAT {
 		return c.store.SaveConnection(ctx, targetWorkspaceID, next)
 	}
-	// The replacement is saved first, requiring sign-in, so a failed save
-	// leaves the target's credentials untouched.
+	// The replacement is saved first, so a failed save leaves the target's
+	// credentials untouched.
 	next.Generation++
 	if err := c.store.SaveConnection(ctx, targetWorkspaceID, next); err != nil {
 		return err
@@ -307,6 +350,7 @@ func (c *Connections) copyInto(ctx context.Context, targetWorkspaceID string, so
 		return err
 	}
 	c.discardOAuthTokens(ctx, targetWorkspaceID)
+	c.clearAzCLIToken(targetWorkspaceID)
 	return nil
 }
 
@@ -322,6 +366,7 @@ func (c *Connections) Delete(ctx context.Context, workspaceID string) error {
 			return err
 		}
 	}
+	c.clearAzCLIToken(workspaceID)
 	c.flows.Purge(ctx, workspaceID, c.now(), true)
 	return c.store.DeleteConnection(ctx, workspaceID)
 }
@@ -338,8 +383,11 @@ func (c *Connections) Client(ctx context.Context, workspaceID string) (Client, s
 	if connection.ReauthRequired {
 		return nil, connection, failedPrecondition(errReauthRequired)
 	}
-	if connection.AuthMethod == store.AuthMethodOAuth {
+	switch connection.AuthMethod {
+	case store.AuthMethodOAuth:
 		return c.newClient(connection.OrganizationURL, oauthAuthorizer{connections: c, workspaceID: workspaceID, bound: connection}), connection, nil
+	case store.AuthMethodAzureCLI:
+		return c.newClient(connection.OrganizationURL, &azCLIAuthorizer{connections: c, workspaceID: workspaceID, bound: connection}), connection, nil
 	}
 	pat, ok, err := c.store.PAT(ctx, workspaceID)
 	if err != nil {
@@ -357,8 +405,18 @@ func (c *Connections) Client(ctx context.Context, workspaceID string) (Client, s
 // replacement never hands out another organization's credential.
 func (c *Connections) gitSecret(ctx context.Context, workspaceID string, verified store.Connection) (string, time.Time, error) {
 	limit := c.now().Add(gitCredentialLifetime)
-	if verified.AuthMethod == store.AuthMethodOAuth {
+	switch verified.AuthMethod {
+	case store.AuthMethodOAuth:
 		token, expiresAt, err := c.boundAccessToken(ctx, workspaceID, verified)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		if expiresAt.Before(limit) {
+			limit = expiresAt
+		}
+		return token, limit, nil
+	case store.AuthMethodAzureCLI:
+		token, expiresAt, err := c.boundAzureCLIToken(ctx, workspaceID, verified)
 		if err != nil {
 			return "", time.Time{}, err
 		}
@@ -429,6 +487,10 @@ func probeError(err error) string {
 	var entraErr *auth.EntraError
 	if errors.As(err, &entraErr) {
 		return "Microsoft sign-in failed: " + entraErr.Code
+	}
+	var azErr *auth.AzCLIError
+	if errors.As(err, &azErr) {
+		return azErr.Error()
 	}
 	var actionErr *pluginsdk.ActionError
 	if errors.As(err, &actionErr) && actionErr.Err != nil {
