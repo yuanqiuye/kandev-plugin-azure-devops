@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"time"
 )
 
 // MockCode is the only authorization code MockEntra accepts.
@@ -48,3 +49,21 @@ func (m *MockEntra) issue() *Token {
 }
 
 var _ IdentityProvider = (*MockEntra)(nil)
+
+// MockAzureCLI stands in for the host Azure CLI in mock mode.
+type MockAzureCLI struct {
+	mu     sync.Mutex
+	issued int
+}
+
+func (m *MockAzureCLI) AccessToken(context.Context, string) (*AzCLIToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.issued++
+	return &AzCLIToken{
+		AccessToken: fmt.Sprintf("mock-az-access-%d", m.issued),
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+	}, nil
+}
+
+var _ AzureCLIProvider = (*MockAzureCLI)(nil)

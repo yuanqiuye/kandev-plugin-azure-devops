@@ -253,6 +253,7 @@ func (c *Connections) replaceWithOAuth(ctx context.Context, flow store.Flow, acc
 		return errors.Join(err, c.restoreOAuthTokens(persistCtx, workspaceID, snapshot))
 	}
 	_ = c.store.DeletePAT(persistCtx, workspaceID)
+	c.clearAzCLIToken(workspaceID)
 	return nil
 }
 

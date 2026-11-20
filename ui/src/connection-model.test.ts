@@ -66,9 +66,11 @@ describe("form and health", () => {
     expect(formFromConnection(microsoft).clientId).toBe("app-in-use");
   });
 
-  it("keeps the application field empty for a token connection", () => {
+  it("keeps the application field empty for a token or Azure CLI connection", () => {
     const token = { ...connected, oauthClientId: "stale" } as ConnectionView;
     expect(formFromConnection(token).clientId).toBe("");
+    const cli = { ...connected, authMethod: "azure_cli", oauthClientId: "stale" } as ConnectionView;
+    expect(formFromConnection(cli)).toMatchObject({ authMethod: "azure_cli", pat: "", clientId: "" });
   });
 
   it("resolves the application as the server does", () => {
@@ -91,10 +93,11 @@ describe("form and health", () => {
     });
   });
 
-  it("reuses the stored token only for the stored organization", () => {
+  it("reuses the stored token only for a PAT connection on the stored organization", () => {
     expect(storedTokenApplies(connected, formFromConnection(connected))).toBe(true);
     expect(storedTokenApplies(connected, { ...formFromConnection(connected), organizationUrl: "https://dev.azure.com/x" })).toBe(false);
     expect(storedTokenApplies({ ...connected, reauthRequired: true }, formFromConnection(connected))).toBe(false);
+    expect(storedTokenApplies({ ...connected, authMethod: "azure_cli" }, formFromConnection(connected))).toBe(false);
   });
 
   it("reports health only for a usable credential", () => {
@@ -118,12 +121,12 @@ describe("connection API", () => {
     await api.test({ ...EMPTY_FORM, organizationUrl: "https://dev.azure.com/acme/", pat: " t " });
     expect(invokeAction).toHaveBeenCalledWith(
       "connection.test",
-      { workspaceId: "ws-1", body: { organizationUrl: "https://dev.azure.com/acme", pat: "t" } },
+      { workspaceId: "ws-1", body: { organizationUrl: "https://dev.azure.com/acme", authMethod: "pat", pat: "t" } },
       { signal: undefined },
     );
   });
 
-  it("tests a Microsoft account connection without a typed PAT", async () => {
+  it("tests a Microsoft account or Azure CLI connection without a typed PAT", async () => {
     const { host, invokeAction } = hostWith({});
     await createConnectionApi(host, "ws-1").test({
       ...EMPTY_FORM,
@@ -133,7 +136,19 @@ describe("connection API", () => {
     });
     expect(invokeAction).toHaveBeenCalledWith(
       "connection.test",
-      { workspaceId: "ws-1", body: { organizationUrl: "https://dev.azure.com/acme", pat: "" } },
+      { workspaceId: "ws-1", body: { organizationUrl: "https://dev.azure.com/acme", authMethod: "oauth", pat: "" } },
+      { signal: undefined },
+    );
+
+    await createConnectionApi(host, "ws-1").test({
+      ...EMPTY_FORM,
+      authMethod: "azure_cli",
+      organizationUrl: "https://dev.azure.com/acme/",
+      pat: "leftover",
+    });
+    expect(invokeAction).toHaveBeenCalledWith(
+      "connection.test",
+      { workspaceId: "ws-1", body: { organizationUrl: "https://dev.azure.com/acme", authMethod: "azure_cli", pat: "" } },
       { signal: undefined },
     );
   });
@@ -171,9 +186,10 @@ describe("connection form state", () => {
     oauthClientId: "app-1",
   };
   const token: ConnectionView = { ...connected, authMethod: "pat" };
+  const azureCli: ConnectionView = { ...connected, authMethod: "azure_cli" };
 
   it("is clean as loaded", () => {
-    for (const connection of [microsoft, token]) {
+    for (const connection of [microsoft, token, azureCli]) {
       expect(connectionFormState(connection, formFromConnection(connection))).toEqual({ dirty: false, canSave: true });
     }
     expect(connectionFormState(null, EMPTY_FORM)).toEqual({ dirty: false, canSave: false });
@@ -238,13 +254,33 @@ describe("connection form state", () => {
     expect(connectionFormState(token, { ...moved, pat: "secret" })).toEqual({ dirty: true, canSave: true });
   });
 
-  it("replaces a Microsoft account with a token only once one is entered", () => {
-    const switched = { ...formFromConnection(microsoft), authMethod: "pat" as const };
-    expect(connectionFormState(microsoft, switched)).toEqual({
+  it("replaces a Microsoft account or Azure CLI connection with a token only once one is entered", () => {
+    for (const source of [microsoft, azureCli]) {
+      const switched = { ...formFromConnection(source), authMethod: "pat" as const };
+      expect(connectionFormState(source, switched)).toEqual({
+        dirty: true,
+        canSave: false,
+        invalidReason: "personalAccessTokenRequired",
+      });
+      expect(connectionFormState(source, { ...switched, pat: "secret" })).toEqual({ dirty: true, canSave: true });
+    }
+  });
+
+  it("saves an Azure CLI connection through the save bar with a valid organization URL", () => {
+    expect(connectionFormState(null, { ...EMPTY_FORM, authMethod: "azure_cli" })).toEqual({
       dirty: true,
       canSave: false,
-      invalidReason: "personalAccessTokenRequired",
+      invalidReason: "invalidOrganizationUrl",
     });
-    expect(connectionFormState(microsoft, { ...switched, pat: "secret" })).toEqual({ dirty: true, canSave: true });
+    expect(
+      connectionFormState(null, { ...EMPTY_FORM, authMethod: "azure_cli", organizationUrl: "https://dev.azure.com/acme" }),
+    ).toEqual({ dirty: true, canSave: true });
+    expect(connectionFormState(token, { ...formFromConnection(token), authMethod: "azure_cli" })).toEqual({
+      dirty: true,
+      canSave: true,
+    });
+    expect(
+      connectionFormState(azureCli, { ...formFromConnection(azureCli), organizationUrl: "https://dev.azure.com/other" }),
+    ).toEqual({ dirty: true, canSave: true });
   });
 });

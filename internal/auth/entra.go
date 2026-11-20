@@ -17,9 +17,11 @@ import (
 )
 
 const (
-	// azureDevOpsResourceScope is the Azure DevOps Services resource in
-	// Microsoft Entra ID; `.default` requests its delegated permissions.
-	azureDevOpsResourceScope = "499b84ac-1321-427f-aa17-267ca6975798/.default"
+	// AzureDevOpsResourceID is the Azure DevOps Services resource in
+	// Microsoft Entra ID.
+	AzureDevOpsResourceID = "499b84ac-1321-427f-aa17-267ca6975798"
+	// azureDevOpsResourceScope requests delegated Azure DevOps permissions.
+	azureDevOpsResourceScope = AzureDevOpsResourceID + "/.default"
 	Scopes                   = azureDevOpsResourceScope + " offline_access openid profile"
 	DefaultTenant            = "organizations"
 	entraLoginBaseURL        = "https://login.microsoftonline.com"

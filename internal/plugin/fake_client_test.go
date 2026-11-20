@@ -147,6 +147,7 @@ type harness struct {
 	host    *hosttest.Host
 	azure   *fakeAzure
 	entra   *fakeEntra
+	azCLI   *fakeAzureCLI
 	runtime *Runtime
 }
 
@@ -155,10 +156,11 @@ func newHarness(t *testing.T) *harness {
 	host := hosttest.New()
 	fake := newFakeAzure()
 	entra := newFakeEntra(fake)
-	runtime := NewRuntimeWith(fake.factory, entra)
+	azCLI := newFakeAzureCLI(fake)
+	runtime := NewRuntimeWithProviders(fake.factory, entra, azCLI)
 	runtime.SetHost(host)
 	t.Cleanup(runtime.Stop)
-	return &harness{t: t, host: host, azure: fake, entra: entra, runtime: runtime}
+	return &harness{t: t, host: host, azure: fake, entra: entra, azCLI: azCLI, runtime: runtime}
 }
 
 func (h *harness) action(workspaceID, key string, body any) (int, map[string]any) {

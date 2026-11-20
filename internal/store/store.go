@@ -20,6 +20,8 @@ const (
 	AuthMethodPAT = "pat"
 	// AuthMethodOAuth authenticates with a Microsoft account (Entra ID).
 	AuthMethodOAuth = "oauth"
+	// AuthMethodAzureCLI authenticates through the host's Azure CLI session.
+	AuthMethodAzureCLI = "azure_cli"
 )
 
 // Connection is the non-secret workspace connection. Generation increments
