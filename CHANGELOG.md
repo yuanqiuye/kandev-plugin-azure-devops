@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0] - 2026-11-20
+
+### Added
+
+- feat: support Azure CLI workspace connections (d0dee24)
+
 ## [0.1.1] - 2026-11-19
 
 ### Changed
