@@ -129,6 +129,7 @@ func (c *RESTClient) GetSprintBoard(ctx context.Context, projectID, teamID, iter
 	if err != nil {
 		return nil, err
 	}
+	c.populateWorkItemStateCategories(ctx, projectID, hydrated)
 	items := make(map[int]WorkItem, len(hydrated))
 	for _, item := range hydrated {
 		items[item.ID] = item

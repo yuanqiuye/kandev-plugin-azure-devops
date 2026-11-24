@@ -10,29 +10,32 @@ import (
 )
 
 // listTeams lists the project's teams and names those of the connected
-// identity. When Azure DevOps cannot list the identity's teams, every team is
-// still listed and none is marked as the user's.
-func listTeams(ctx context.Context, client Client, in browseInput) (any, error) {
+// identity, paged below Kandev's 1 MiB action response limit.
+func (b *Browse) listTeams(ctx context.Context, workspaceID string, in browseInput) (any, error) {
 	if err := in.requireProject(); err != nil {
 		return nil, err
 	}
-	var teams []azure.Team
-	var mine []string
-	var teamsErr, mineErr error
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		mine, mineErr = client.ListMyTeamIDs(ctx, in.ProjectID)
-	}()
-	teams, teamsErr = client.ListTeams(ctx, in.ProjectID)
-	<-done
-	if teamsErr != nil {
-		return nil, teamsErr
+	skip, err := decodeSkipCursor(in.Cursor)
+	if err != nil {
+		return nil, err
 	}
-	if mineErr != nil {
-		mine = nil
+	teams, mine, err := b.connections.ProjectTeams(ctx, workspaceID, in.ProjectID)
+	if err != nil {
+		return nil, err
 	}
-	return map[string]any{"teams": nonNil(teams), "mineIds": nonNil(mine)}, nil
+	if skip >= len(teams) {
+		return map[string]any{"teams": []azure.Team{}, "mineIds": []string{}}, nil
+	}
+	end := min(skip+maxTeamsPerActionPage, len(teams))
+	mineSlice := []string{}
+	if skip == 0 {
+		mineSlice = nonNil(mine)
+	}
+	result := map[string]any{"teams": teams[skip:end], "mineIds": mineSlice}
+	if end < len(teams) {
+		result["nextCursor"] = encodeSkipCursor(end)
+	}
+	return result, nil
 }
 
 func (in browseInput) requireTeam() error {

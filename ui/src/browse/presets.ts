@@ -29,6 +29,7 @@ const ICONS = {
   recent: IconCalendarClock,
   assigned: IconInbox,
   active: IconActivity,
+  done: IconChecks,
   "review-requested": IconInbox,
   completed: IconChecks,
   created: IconUser,
@@ -44,7 +45,7 @@ function filtersForQuery(
 ): Partial<AzureDevOpsFiltersState> {
   if (kind === "work_item") {
     const top = typeof filters.top === "number" && filters.top > 0 ? filters.top : 50;
-    return { wiql: stringFilter(filters, "wiql"), top };
+    return { wiql: stringFilter(filters, "wiql"), top, workItemState: "" };
   }
   return {
     status: stringFilter(filters, "status", "active"),
@@ -100,11 +101,12 @@ export function matchingPresetId(
   presets: AzureDevOpsPreset[],
   filters: Partial<AzureDevOpsFiltersState>,
 ): string {
-  if (filters.text?.trim()) return "";
+  if (filters.text?.trim() || filters.workItemState?.trim()) return "";
   const match = presets.find((preset) =>
-    Object.entries(preset.filters).every(
-      ([key, value]) => filters[key as keyof AzureDevOpsFiltersState] === value,
-    ),
+    Object.entries(preset.filters).every(([key, value]) => {
+      if (key === "workItemState") return (filters.workItemState ?? "") === value;
+      return filters[key as keyof AzureDevOpsFiltersState] === value;
+    }),
   );
   return match?.value ?? "";
 }

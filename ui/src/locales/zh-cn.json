@@ -415,6 +415,8 @@
   "workItemQuery": "工作项查询",
   "workItemQuery2": "工作项查询",
   "workItemSearchPlaceholder": "工作项编号或标题中的字词",
+  "workItemStateOpen": "未完成",
+  "workItemStateToDo": "待办 (To Do)",
   "workItemUnavailable": "工作项不可用。",
   "workItemWatchFieldsRequired": "项目、WIQL、仓库、工作流、步骤、智能体和执行器均为必填项。",
   "workItemWatches": "工作项监控",

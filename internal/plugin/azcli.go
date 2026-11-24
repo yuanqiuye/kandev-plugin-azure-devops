@@ -120,6 +120,7 @@ func (c *Connections) saveAzureCLI(ctx context.Context, workspaceID, organizatio
 	}
 	_ = c.store.DeletePAT(ctx, workspaceID)
 	c.discardOAuthTokens(ctx, workspaceID)
+	c.clearWorkspaceCaches(workspaceID)
 	c.setAzCLIToken(workspaceID, cachedAzToken{
 		generation:      generation,
 		organizationURL: organizationURL,

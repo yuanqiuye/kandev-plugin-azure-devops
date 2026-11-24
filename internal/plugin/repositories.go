@@ -10,6 +10,7 @@ import (
 	"kandev-plugin-azure-devops/internal/auth"
 	"kandev-plugin-azure-devops/internal/azure"
 	"kandev-plugin-azure-devops/internal/sourcecontrol"
+	"kandev-plugin-azure-devops/internal/store"
 )
 
 const (
@@ -18,7 +19,8 @@ const (
 	// ProviderHost is the HTTPS origin of every Azure Repos clone URL.
 	ProviderHost = "https://" + azure.OrganizationHost
 
-	repositoryListCursor = "after"
+	repositoryListCursor     = "after"
+	maxRepositoryListMatches = 500
 )
 
 var errRepositoryNotFound = errors.New("the Azure DevOps repository was not found or is not accessible")
@@ -53,8 +55,9 @@ func (r *Repositories) ConnectionScope(ctx context.Context, workspaceID string) 
 }
 
 // List returns enabled repositories across the organization, filtered by a
-// case-insensitive match on project or repository name, ordered by project
-// and name, and paged after the last returned repository ID.
+// case-insensitive match on project, repository name, or pasted Azure Repos
+// URL, ordered by project and name, and paged after the last returned
+// repository ID.
 func (r *Repositories) List(ctx context.Context, workspaceID, query string, cursor sourcecontrol.RepositoryCursor, limit int) (sourcecontrol.RepositoryPage, error) {
 	client, connection, err := r.connections.Client(ctx, workspaceID)
 	if err != nil {
@@ -64,12 +67,43 @@ func (r *Repositories) List(ctx context.Context, workspaceID, query string, curs
 	if err != nil {
 		return sourcecontrol.RepositoryPage{}, unavailable(err)
 	}
-	all, err := client.ListAllRepositories(ctx)
-	if err != nil {
-		return sourcecontrol.RepositoryPage{}, err
+
+	trimmedQuery := strings.TrimSpace(query)
+	if remote, parseErr := azure.ParseRemoteURL(trimmedQuery); parseErr == nil {
+		if !strings.EqualFold(remote.Organization, organization) {
+			return sourcecontrol.RepositoryPage{Repositories: []sourcecontrol.Repository{}}, nil
+		}
+		if cached, ok := r.connections.CachedAllRepositories(workspaceID, connection); ok {
+			for _, repo := range cached {
+				if !repo.IsDisabled &&
+					strings.EqualFold(repo.ProjectName, remote.Project) &&
+					strings.EqualFold(repo.Name, remote.Repository) {
+					return sourcecontrol.RepositoryPage{Repositories: []sourcecontrol.Repository{descriptor(organization, repo)}}, nil
+				}
+			}
+		}
+		repo, getErr := client.GetRepository(ctx, remote.Project, remote.Repository)
+		if getErr != nil {
+			if isNotFound(getErr) {
+				return sourcecontrol.RepositoryPage{Repositories: []sourcecontrol.Repository{}}, nil
+			}
+			return sourcecontrol.RepositoryPage{}, repositoryReadError(getErr)
+		}
+		if repo.IsDisabled {
+			return sourcecontrol.RepositoryPage{Repositories: []sourcecontrol.Repository{}}, nil
+		}
+		return sourcecontrol.RepositoryPage{Repositories: []sourcecontrol.Repository{descriptor(organization, *repo)}}, nil
 	}
-	needle := strings.ToLower(strings.TrimSpace(query))
-	matches := make([]azure.Repository, 0, len(all))
+
+	all, _, err := r.connections.AllRepositories(ctx, workspaceID, repoCatalogActionWait)
+	if err != nil {
+		if fallback, ok := r.fallbackDirectRepository(ctx, client, connection, organization, trimmedQuery); ok {
+			return fallback, nil
+		}
+		return sourcecontrol.RepositoryPage{}, repositoryReadError(err)
+	}
+	needle := strings.ToLower(trimmedQuery)
+	matches := make([]azure.Repository, 0, min(len(all), maxRepositoryListMatches))
 	for _, repository := range all {
 		if repository.IsDisabled {
 			continue
@@ -87,6 +121,9 @@ func (r *Repositories) List(ctx context.Context, workspaceID, query string, curs
 		}
 		return matches[i].ID < matches[j].ID
 	})
+	if len(matches) > maxRepositoryListMatches {
+		matches = matches[:maxRepositoryListMatches]
+	}
 	start := 0
 	if cursor.AfterRepositoryID != "" {
 		start = -1
@@ -109,6 +146,26 @@ func (r *Repositories) List(ctx context.Context, workspaceID, query string, curs
 		page.Next = sourcecontrol.RepositoryCursor{Remote: repositoryListCursor, AfterRepositoryID: matches[end-1].ID}
 	}
 	return page, nil
+}
+
+func (r *Repositories) fallbackDirectRepository(
+	ctx context.Context, client Client, connection store.Connection, organization, query string,
+) (sourcecontrol.RepositoryPage, bool) {
+	if query == "" {
+		return sourcecontrol.RepositoryPage{}, false
+	}
+	if project, repoName, hasSlash := strings.Cut(query, "/"); hasSlash && strings.TrimSpace(project) != "" && strings.TrimSpace(repoName) != "" {
+		if repo, err := client.GetRepository(ctx, strings.TrimSpace(project), strings.TrimSpace(repoName)); err == nil && !repo.IsDisabled {
+			return sourcecontrol.RepositoryPage{Repositories: []sourcecontrol.Repository{descriptor(organization, *repo)}}, true
+		}
+	}
+	defaultProj := firstNonEmpty(connection.DefaultProjectID, connection.DefaultProjectName)
+	if defaultProj != "" && !strings.Contains(query, "/") {
+		if repo, err := client.GetRepository(ctx, defaultProj, query); err == nil && !repo.IsDisabled {
+			return sourcecontrol.RepositoryPage{Repositories: []sourcecontrol.Repository{descriptor(organization, *repo)}}, true
+		}
+	}
+	return sourcecontrol.RepositoryPage{}, false
 }
 
 // Inspect resolves an Azure Repos URL in the connected organization. A URL

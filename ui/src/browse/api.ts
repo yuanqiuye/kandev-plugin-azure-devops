@@ -41,12 +41,43 @@ export function createBrowseApi(host: PluginHostApi, workspaceId: string) {
   return {
     projects: async (signal?: AbortSignal) =>
       (await invoke<{ projects?: AzureDevOpsProject[] }>("projects.list", {}, signal)).projects ?? [],
-    repositories: async (projectId: string, signal?: AbortSignal) =>
-      (await invoke<{ repositories?: AzureDevOpsRepository[] }>("projects.repositories", { projectId }, signal))
-        .repositories ?? [],
+    repositories: async (projectId: string, signal?: AbortSignal) => {
+      const all: AzureDevOpsRepository[] = [];
+      const seen = new Set<string>();
+      let cursor = "";
+      for (;;) {
+        const page = await invoke<{ repositories?: AzureDevOpsRepository[]; nextCursor?: string }>(
+          "projects.repositories",
+          cursor ? { projectId, cursor } : { projectId },
+          signal,
+        );
+        if (page.repositories?.length) all.push(...page.repositories);
+        const next = page.nextCursor ?? "";
+        if (!next || seen.has(next)) break;
+        seen.add(next);
+        cursor = next;
+      }
+      return all;
+    },
     teams: async (projectId: string, signal?: AbortSignal): Promise<AzureDevOpsTeamList> => {
-      const list = await invoke<Partial<AzureDevOpsTeamList>>("teams.list", { projectId }, signal);
-      return { teams: list.teams ?? [], mineIds: list.mineIds ?? [] };
+      const teams: AzureDevOpsTeamList["teams"] = [];
+      let mineIds: string[] = [];
+      const seen = new Set<string>();
+      let cursor = "";
+      for (;;) {
+        const page = await invoke<Partial<AzureDevOpsTeamList> & { nextCursor?: string }>(
+          "teams.list",
+          cursor ? { projectId, cursor } : { projectId },
+          signal,
+        );
+        if (!cursor && page.mineIds) mineIds = page.mineIds;
+        if (page.teams?.length) teams.push(...page.teams);
+        const next = page.nextCursor ?? "";
+        if (!next || seen.has(next)) break;
+        seen.add(next);
+        cursor = next;
+      }
+      return { teams, mineIds };
     },
     teamSettings: (projectId: string, teamId: string, signal?: AbortSignal) =>
       invoke<AzureDevOpsTeamSettings>("teams.settings", { projectId, teamId }, signal),
@@ -77,8 +108,10 @@ export function createBrowseApi(host: PluginHostApi, workspaceId: string) {
       id: number,
       update: AzureDevOpsBoardWorkItemUpdate,
     ) => (await invoke<{ item: AzureDevOpsBoardWorkItem }>("boards.update_item", { ...location, id, ...update })).item,
-    searchWorkItems: (query: { projectId: string; wiql: string; top: number }, signal?: AbortSignal) =>
-      invoke<AzureDevOpsWorkItemSearchResult>("work_items.search", query, signal),
+    searchWorkItems: (
+      query: { projectId: string; wiql: string; top: number; stateCategory?: string },
+      signal?: AbortSignal,
+    ) => invoke<AzureDevOpsWorkItemSearchResult>("work_items.search", query, signal),
     workItem: async (projectId: string, id: number, signal?: AbortSignal) =>
       (await invoke<{ item: AzureDevOpsWorkItemDetail }>("work_items.get", { projectId, id }, signal)).item,
     comments: (projectId: string, id: number, continuationToken = "", signal?: AbortSignal) =>

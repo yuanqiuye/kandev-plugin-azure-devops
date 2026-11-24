@@ -46,6 +46,7 @@ export type AzureDevOpsWorkItem = {
   title: string;
   description?: string;
   state: string;
+  stateCategory?: string;
   type: string;
   project?: string;
   areaPath?: string;

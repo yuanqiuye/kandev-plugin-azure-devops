@@ -8,6 +8,7 @@ import { SearchablePicker } from "./searchable-picker";
 import { useSprintOptions } from "./sprint-options";
 import { filterRowsByPerson, personFilterOptions, sprintDateRange, tasksInColumn, teamPickerOptions } from "./sprints-model";
 import { WorkItemTaskActions } from "./task-actions";
+import { WorkItemStateBadge } from "./work-item-state";
 import type {
   AzureDevOpsActionPreset,
   AzureDevOpsProject,
@@ -72,6 +73,7 @@ function SprintCard({
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="outline">#{item.id}</Badge>
           {item.type && <Badge variant="secondary">{item.type}</Badge>}
+          <WorkItemStateBadge state={item.state} stateCategory={item.stateCategory} />
           <span className="truncate">{item.assignedTo || t("unassigned")}</span>
         </div>
         <div className="flex justify-end">

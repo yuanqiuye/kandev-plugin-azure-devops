@@ -77,10 +77,18 @@ export function updateAzureDevOpsWorkspaceSettings(
 
 export function searchAzureDevOpsWorkItems(
   workspaceId: string,
-  payload: { project: string; wiql: string; top?: number },
+  payload: { project: string; wiql: string; top?: number; stateCategory?: string },
   options?: ApiRequestOptions,
 ): Promise<AzureDevOpsWorkItemSearchResult> {
-  return api(workspaceId).searchWorkItems({ projectId: payload.project, wiql: payload.wiql, top: payload.top ?? 50 }, signalOf(options));
+  return api(workspaceId).searchWorkItems(
+    {
+      projectId: payload.project,
+      wiql: payload.wiql,
+      top: payload.top ?? 50,
+      ...(payload.stateCategory ? { stateCategory: payload.stateCategory } : {}),
+    },
+    signalOf(options),
+  );
 }
 
 export function getAzureDevOpsWorkItemDetail(

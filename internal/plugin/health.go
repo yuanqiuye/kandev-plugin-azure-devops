@@ -35,10 +35,32 @@ func (p *HealthPoller) Run(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		p.PollOnce(ctx)
+		p.warmHealthyCatalogs(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+	}
+}
+
+func (p *HealthPoller) warmHealthyCatalogs(ctx context.Context) {
+	ids, err := listWorkspaceIDs(ctx, p.workspaces)
+	if err != nil {
+		return
+	}
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return
+		}
+		conn, found, err := p.connections.store.Connection(ctx, id)
+		if err != nil || !found || conn.ReauthRequired {
+			continue
+		}
+		if health, ok, _ := p.connections.store.Health(ctx, id); ok && health.Generation == conn.Generation && health.OK {
+			if _, cached := p.connections.CachedAllRepositories(id, conn); !cached {
+				p.connections.WarmRepositories(id)
+			}
 		}
 	}
 }

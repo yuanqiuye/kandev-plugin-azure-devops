@@ -3,6 +3,7 @@ import { Badge } from "../host-ui";
 import { useT } from "../i18n";
 import { childSummary } from "./board-children";
 import { WorkItemTaskActions, containedEvents } from "./task-actions";
+import { WorkItemStateBadge } from "./work-item-state";
 import type { AzureDevOpsActionPreset, AzureDevOpsChildCard, AzureDevOpsWorkItem } from "./types";
 
 type StartTask = (item: AzureDevOpsWorkItem, action?: AzureDevOpsActionPreset) => void;
@@ -88,7 +89,7 @@ function ChildLine({ item, tree }: { item: AzureDevOpsChildCard; tree: ChildTree
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
             <span className="font-mono">#{item.id}</span>
             {item.type && <Badge variant="secondary">{item.type}</Badge>}
-            <span>{item.state}</span>
+            <WorkItemStateBadge state={item.state} stateCategory={item.stateCategory} />
             <span className="truncate">{item.assignedTo || t("unassigned")}</span>
           </div>
           {!!children?.length && (

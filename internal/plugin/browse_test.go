@@ -129,7 +129,7 @@ func TestSavedViewsValidateAndRoundTrip(t *testing.T) {
 func TestWorkspaceSettingsDefaultPatchAndReset(t *testing.T) {
 	h := newHarness(t)
 	_, settings := h.action("ws-1", "workspace_settings.get", nil)
-	if len(settings["workItemQueries"].([]any)) != 4 || len(settings["pullRequestActions"].([]any)) != 3 {
+	if len(settings["workItemQueries"].([]any)) != 5 || len(settings["pullRequestActions"].([]any)) != 3 {
 		t.Fatalf("defaults = %v", settings)
 	}
 	status, patched := h.action("ws-1", "workspace_settings.patch", map[string]any{
@@ -147,7 +147,7 @@ func TestWorkspaceSettingsDefaultPatchAndReset(t *testing.T) {
 		t.Fatalf("unknown key status = %d, want 400", status)
 	}
 	_, reset := h.action("ws-1", "workspace_settings.patch", map[string]any{"workItemQueries": nil})
-	if len(reset["workItemQueries"].([]any)) != 4 {
+	if len(reset["workItemQueries"].([]any)) != 5 {
 		t.Fatalf("reset = %v", reset)
 	}
 }

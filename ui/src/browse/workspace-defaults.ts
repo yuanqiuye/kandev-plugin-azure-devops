@@ -53,7 +53,16 @@ export const DEFAULT_AZURE_WORK_ITEM_QUERIES: AzureDevOpsQueryPreset[] = [
     label: "Active",
     group: "inbox",
     filters: {
-      wiql: wiql("[System.State] <> 'Closed' AND [System.State] <> 'Done'"),
+      wiql: wiql("[System.State] NOT IN ('Closed', 'Done', 'Completed', 'Removed')"),
+      top: 50,
+    },
+  },
+  {
+    id: "done",
+    label: "Done",
+    group: "created",
+    filters: {
+      wiql: wiql("[System.State] IN ('Done', 'Closed', 'Completed')"),
       top: 50,
     },
   },
@@ -151,6 +160,7 @@ const QUERY_LABEL_KEYS: Record<string, string> = {
   "work_item:recent": "defaultQueryRecentlyUpdated",
   "work_item:assigned": "defaultQueryAssignedToMe",
   "work_item:active": "defaultQueryActive",
+  "work_item:done": "done",
   "work_item:created": "defaultQueryCreatedByMe",
   "pull_request:review-requested": "defaultQueryReviewRequested",
   "pull_request:active": "defaultQueryOpen",

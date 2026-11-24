@@ -67,7 +67,8 @@ func DefaultWorkItemQueryPresets() []QueryPreset {
 	return []QueryPreset{
 		{ID: "recent", Label: "Recently updated", Group: "inbox", Filters: map[string]any{"wiql": start + order, "top": 50}},
 		{ID: "assigned", Label: "Assigned to me", Group: "inbox", Filters: map[string]any{"wiql": start + " AND [System.AssignedTo] = @Me" + order, "top": 50}},
-		{ID: "active", Label: "Active", Group: "inbox", Filters: map[string]any{"wiql": start + " AND [System.State] <> 'Closed' AND [System.State] <> 'Done'" + order, "top": 50}},
+		{ID: "active", Label: "Active", Group: "inbox", Filters: map[string]any{"wiql": start + " AND [System.State] NOT IN ('Closed', 'Done', 'Completed', 'Removed')" + order, "top": 50}},
+		{ID: "done", Label: "Done", Group: "created", Filters: map[string]any{"wiql": start + " AND [System.State] IN ('Done', 'Closed', 'Completed')" + order, "top": 50}},
 		{ID: "created", Label: "Created by me", Group: "created", Filters: map[string]any{"wiql": start + " AND [System.CreatedBy] = @Me" + order, "top": 50}},
 	}
 }

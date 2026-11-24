@@ -415,6 +415,8 @@
   "workItemQuery": "Consulta de itens de trabalho",
   "workItemQuery2": "consulta de itens de trabalho",
   "workItemSearchPlaceholder": "Número do item de trabalho ou palavras do título",
+  "workItemStateOpen": "Aberto (não concluído)",
+  "workItemStateToDo": "Por fazer (To Do)",
   "workItemUnavailable": "Item de trabalho indisponível.",
   "workItemWatchFieldsRequired": "O projeto, o WIQL, o repositório, o fluxo de trabalho, o passo, o agente e o executor são obrigatórios.",
   "workItemWatches": "Vigilâncias de itens de trabalho",

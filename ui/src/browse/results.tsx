@@ -19,7 +19,9 @@ import type {
   AzureDevOpsWorkItem,
 } from "./types";
 import { useT } from "../i18n";
+import { cn } from "../cn";
 import { azureActionDisplayCopy } from "./workspace-defaults";
+import { partitionWorkItemsByDone, WorkItemStateBadge, workItemStateGroup } from "./work-item-state";
 
 function EmptyResult({ loading, error }: { loading: boolean; error: string | null }) {
   const t = useT();
@@ -94,6 +96,81 @@ export function TaskActionsMenu<T extends { id: number }>({
   );
 }
 
+function WorkItemRow({
+  item,
+  onStartTask,
+  onOpenDetail,
+  quickActions = [],
+  onQuickAction,
+}: {
+  item: AzureDevOpsWorkItem;
+  onStartTask?: (item: AzureDevOpsWorkItem) => void;
+  onOpenDetail?: (item: AzureDevOpsWorkItem) => void;
+  quickActions?: AzureDevOpsActionPreset[];
+  onQuickAction?: (item: AzureDevOpsWorkItem, action: AzureDevOpsActionPreset) => void;
+}) {
+  const t = useT();
+  const isDone = workItemStateGroup(item) === "done";
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start">
+      <div
+        className="min-w-0 flex-1 cursor-pointer space-y-1"
+        role={onOpenDetail ? "button" : undefined}
+        tabIndex={onOpenDetail ? 0 : undefined}
+        onClick={() => onOpenDetail?.(item)}
+        onKeyDown={(event) => {
+          if (onOpenDetail && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            onOpenDetail(item);
+          }
+        }}
+        data-testid={`azure-work-item-row-${item.id}`}
+      >
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-mono">#{item.id}</span>
+          <Badge variant="outline">{item.type}</Badge>
+          <WorkItemStateBadge state={item.state} stateCategory={item.stateCategory} />
+        </div>
+        <div className={cn("break-words text-sm font-medium", isDone && "text-muted-foreground")}>
+          {item.title}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {item.assignedTo || t("unassigned")}
+          {item.areaPath ? ` · ${item.areaPath}` : ""}
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        {item.webUrl && (
+          <Button asChild variant="ghost" size="icon-sm" className="cursor-pointer">
+            <a
+              href={item.webUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={t("openWorkItemInAzureDevops", { id: item.id })}
+            >
+              <IconExternalLink className="h-4 w-4" />
+            </a>
+          </Button>
+        )}
+        {quickActions.length > 0 && onQuickAction ? (
+          <TaskActionsMenu item={item} itemKind="workItem" actions={quickActions} onSelect={onQuickAction} />
+        ) : onStartTask ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="cursor-pointer"
+            onClick={() => onStartTask(item)}
+          >
+            <IconPlus className="h-4 w-4" />
+            {t("startTask")}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function AzureDevOpsWorkItemResults({
   items,
   loading,
@@ -114,69 +191,39 @@ export function AzureDevOpsWorkItemResults({
   const t = useT();
   if (loading || error || items.length === 0)
     return <EmptyResult loading={loading} error={error} />;
+  const { open, done, hasBoth } = partitionWorkItemsByDone(items);
+  const rowProps = { onStartTask, onOpenDetail, quickActions, onQuickAction };
+  if (!hasBoth) {
+    return (
+      <div className="divide-y" data-testid="azure-devops-work-item-results">
+        {items.map((item) => (
+          <WorkItemRow key={item.id} item={item} {...rowProps} />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="divide-y" data-testid="azure-devops-work-item-results">
-      {items.map((item) => (
-        <div key={item.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start">
-          <div
-            className="min-w-0 flex-1 cursor-pointer space-y-1"
-            role={onOpenDetail ? "button" : undefined}
-            tabIndex={onOpenDetail ? 0 : undefined}
-            onClick={() => onOpenDetail?.(item)}
-            onKeyDown={(event) => {
-              if (onOpenDetail && (event.key === "Enter" || event.key === " ")) {
-                event.preventDefault();
-                onOpenDetail(item);
-              }
-            }}
-            data-testid={`azure-work-item-row-${item.id}`}
-          >
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-mono">#{item.id}</span>
-              <Badge variant="outline">{item.type}</Badge>
-              <span>{item.state}</span>
-            </div>
-            <div className="break-words text-sm font-medium">{item.title}</div>
-            <div className="text-xs text-muted-foreground">
-              {item.assignedTo || t("unassigned")}
-              {item.areaPath ? ` · ${item.areaPath}` : ""}
-            </div>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {item.webUrl && (
-              <Button asChild variant="ghost" size="icon-sm" className="cursor-pointer">
-                <a
-                  href={item.webUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={t("openWorkItemInAzureDevops", { id: item.id })}
-                >
-                  <IconExternalLink className="h-4 w-4" />
-                </a>
-              </Button>
-            )}
-            {quickActions.length > 0 && onQuickAction ? (
-              <TaskActionsMenu
-                item={item}
-                itemKind="workItem"
-                actions={quickActions}
-                onSelect={onQuickAction}
-              />
-            ) : onStartTask ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="cursor-pointer"
-                onClick={() => onStartTask(item)}
-              >
-                <IconPlus className="h-4 w-4" />
-                {t("startTask")}
-              </Button>
-            ) : null}
-          </div>
+      <section data-testid="azure-work-item-group-open">
+        <div className="bg-muted/40 px-4 py-1.5 text-xs font-semibold text-muted-foreground">
+          {t("workItemStateOpen")} · {open.length}
         </div>
-      ))}
+        <div className="divide-y">
+          {open.map((item) => (
+            <WorkItemRow key={item.id} item={item} {...rowProps} />
+          ))}
+        </div>
+      </section>
+      <section data-testid="azure-work-item-group-done">
+        <div className="bg-muted/40 px-4 py-1.5 text-xs font-semibold text-muted-foreground">
+          {t("done")} · {done.length}
+        </div>
+        <div className="divide-y">
+          {done.map((item) => (
+            <WorkItemRow key={item.id} item={item} {...rowProps} />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

@@ -415,6 +415,8 @@
   "workItemQuery": "Work-item query",
   "workItemQuery2": "work-item query",
   "workItemSearchPlaceholder": "Work item number or words in the title",
+  "workItemStateOpen": "Open (not Done)",
+  "workItemStateToDo": "To Do",
   "workItemUnavailable": "Work item unavailable.",
   "workItemWatchFieldsRequired": "Project, WIQL, repository, workflow, step, agent, and executor are required.",
   "workItemWatches": "Work-item watches",

@@ -415,6 +415,8 @@
   "workItemQuery": "作業項目クエリ",
   "workItemQuery2": "作業項目クエリ",
   "workItemSearchPlaceholder": "作業項目の番号またはタイトルの語句",
+  "workItemStateOpen": "未完了",
+  "workItemStateToDo": "未着手 (To Do)",
   "workItemUnavailable": "作業項目を利用できません。",
   "workItemWatchFieldsRequired": "プロジェクト、WIQL、リポジトリ、ワークフロー、ステップ、エージェント、実行プロファイルが必要です。",
   "workItemWatches": "作業項目ウォッチ",

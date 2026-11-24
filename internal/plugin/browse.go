@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -13,10 +15,12 @@ import (
 
 const (
 	// maxWorkItemResults bounds a search response below the 1 MiB action limit.
-	maxWorkItemResults     = 200
-	defaultPullRequestPage = 50
-	maxPullRequestPage     = 100
-	currentUserFilter      = "@me"
+	maxWorkItemResults           = 200
+	defaultPullRequestPage       = 50
+	maxPullRequestPage           = 100
+	maxRepositoriesPerActionPage = 1500
+	maxTeamsPerActionPage        = 2000
+	currentUserFilter            = "@me"
 )
 
 var errProjectRequired = errors.New("a project is required")
@@ -37,6 +41,7 @@ type browseInput struct {
 	IDs               []int   `json:"ids"`
 	Revision          int     `json:"revision"`
 	WIQL              string  `json:"wiql"`
+	StateCategory     string  `json:"stateCategory"`
 	Top               int     `json:"top"`
 	ContinuationToken string  `json:"continuationToken"`
 	Status            string  `json:"status"`
@@ -71,6 +76,23 @@ func (in browseInput) requirePullRequest() error {
 
 // Handle serves one browse action. found is false for other action keys.
 func (b *Browse) Handle(ctx context.Context, workspaceID, key string, body []byte) (any, bool, error) {
+	if key == "projects.repositories" || key == "teams.list" {
+		var input browseInput
+		if err := decodeBody(body, &input); err != nil {
+			return nil, true, err
+		}
+		var result any
+		var err error
+		if key == "projects.repositories" {
+			result, err = b.listProjectRepositories(ctx, workspaceID, input)
+		} else {
+			result, err = b.listTeams(ctx, workspaceID, input)
+		}
+		if err != nil {
+			return nil, true, browseError(err)
+		}
+		return result, true, nil
+	}
 	handler, found := browseHandlers[key]
 	if !found {
 		return nil, false, nil
@@ -93,8 +115,6 @@ func (b *Browse) Handle(ctx context.Context, workspaceID, key string, body []byt
 type browseHandler func(context.Context, Client, browseInput) (any, error)
 
 var browseHandlers = map[string]browseHandler{
-	"projects.repositories":  listProjectRepositories,
-	"teams.list":             listTeams,
 	"teams.settings":         getTeamSettings,
 	"sprints.board":          getSprintBoard,
 	"boards.list":            listBoards,
@@ -112,21 +132,27 @@ var browseHandlers = map[string]browseHandler{
 	"identity.get":           getIdentity,
 }
 
-func listProjectRepositories(ctx context.Context, client Client, in browseInput) (any, error) {
+func (b *Browse) listProjectRepositories(ctx context.Context, workspaceID string, in browseInput) (any, error) {
 	if err := in.requireProject(); err != nil {
 		return nil, err
 	}
-	repositories, err := client.ListRepositories(ctx, in.ProjectID)
+	skip, err := decodeSkipCursor(in.Cursor)
 	if err != nil {
 		return nil, err
 	}
-	enabled := make([]azure.Repository, 0, len(repositories))
-	for _, repository := range repositories {
-		if !repository.IsDisabled {
-			enabled = append(enabled, repository)
-		}
+	enabled, err := b.connections.ProjectRepositories(ctx, workspaceID, in.ProjectID)
+	if err != nil {
+		return nil, err
 	}
-	return map[string]any{"repositories": enabled}, nil
+	if skip >= len(enabled) {
+		return map[string]any{"repositories": []azure.Repository{}}, nil
+	}
+	end := min(skip+maxRepositoriesPerActionPage, len(enabled))
+	result := map[string]any{"repositories": enabled[skip:end]}
+	if end < len(enabled) {
+		result["nextCursor"] = encodeSkipCursor(end)
+	}
+	return result, nil
 }
 
 func listBoards(ctx context.Context, client Client, in browseInput) (any, error) {
@@ -205,6 +231,86 @@ func resolveAssignee(ctx context.Context, client Client, action string) (string,
 	}
 }
 
+type stateCategoryProvider interface {
+	ProjectStatesByCategory(ctx context.Context, projectID string) (map[string][]string, error)
+}
+
+var (
+	wiqlOrderByRE = regexp.MustCompile(`(?i)\s+ORDER\s+BY\s+`)
+	wiqlWhereRE   = regexp.MustCompile(`(?i)\s+WHERE\s+`)
+)
+
+func applyStateCategoryWIQL(ctx context.Context, client Client, projectID, wiql, category string) (string, error) {
+	cat := strings.ToLower(strings.TrimSpace(category))
+	if cat == "" {
+		return wiql, nil
+	}
+	var byCategory map[string][]string
+	if provider, ok := client.(stateCategoryProvider); ok {
+		byCategory, _ = provider.ProjectStatesByCategory(ctx, projectID)
+	}
+	var clause string
+	switch cat {
+	case "todo":
+		states := mergeStateNames(byCategory["proposed"], "To Do", "New", "Proposed", "Requested", "Design")
+		clause = "[System.State] IN (" + quoteWIQLStrings(states) + ")"
+	case "in_progress":
+		states := mergeStateNames(
+			append(append([]string{}, byCategory["inprogress"]...), byCategory["resolved"]...),
+			"Active", "In Progress", "Doing", "Committed", "Approved", "In Review", "Open", "Ready", "Resolved",
+		)
+		clause = "[System.State] IN (" + quoteWIQLStrings(states) + ")"
+	case "done":
+		states := mergeStateNames(byCategory["completed"], "Done", "Closed", "Completed", "Inactive")
+		clause = "[System.State] IN (" + quoteWIQLStrings(states) + ")"
+	case "open":
+		states := mergeStateNames(
+			append(append([]string{}, byCategory["completed"]...), byCategory["removed"]...),
+			"Done", "Closed", "Completed", "Inactive", "Removed", "Cut",
+		)
+		clause = "[System.State] NOT IN (" + quoteWIQLStrings(states) + ")"
+	default:
+		return "", invalidArgument(errors.New("unsupported work item state filter"))
+	}
+	return appendWIQLCondition(wiql, clause), nil
+}
+
+func mergeStateNames(projectStates []string, defaults ...string) []string {
+	seen := make(map[string]bool, len(projectStates)+len(defaults))
+	var out []string
+	for _, list := range [][]string{projectStates, defaults} {
+		for _, name := range list {
+			trimmed := strings.TrimSpace(name)
+			key := strings.ToLower(trimmed)
+			if trimmed != "" && !seen[key] {
+				seen[key] = true
+				out = append(out, trimmed)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func quoteWIQLStrings(values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = "'" + strings.ReplaceAll(v, "'", "''") + "'"
+	}
+	return strings.Join(quoted, ", ")
+}
+
+func appendWIQLCondition(wiql, condition string) string {
+	head, tail := wiql, ""
+	if loc := wiqlOrderByRE.FindStringIndex(wiql); loc != nil {
+		head, tail = wiql[:loc[0]], wiql[loc[0]:]
+	}
+	if loc := wiqlWhereRE.FindStringIndex(head); loc != nil {
+		return head[:loc[1]] + "(" + strings.TrimSpace(head[loc[1]:]) + ") AND " + condition + tail
+	}
+	return head + " WHERE " + condition + tail
+}
+
 func searchWorkItems(ctx context.Context, client Client, in browseInput) (any, error) {
 	if err := in.requireProject(); err != nil {
 		return nil, err
@@ -212,11 +318,15 @@ func searchWorkItems(ctx context.Context, client Client, in browseInput) (any, e
 	if strings.TrimSpace(in.WIQL) == "" {
 		return nil, invalidArgument(errors.New("a WIQL query is required"))
 	}
+	wiql, err := applyStateCategoryWIQL(ctx, client, in.ProjectID, in.WIQL, in.StateCategory)
+	if err != nil {
+		return nil, err
+	}
 	top := in.Top
 	if top <= 0 || top > maxWorkItemResults {
 		top = maxWorkItemResults
 	}
-	result, err := client.QueryWIQL(ctx, in.ProjectID, in.WIQL, top)
+	result, err := client.QueryWIQL(ctx, in.ProjectID, wiql, top)
 	if err != nil {
 		return nil, err
 	}
@@ -458,6 +568,9 @@ func getIdentity(ctx context.Context, client Client, _ browseInput) (any, error)
 func summary(item azure.WorkItem) azure.WorkItem {
 	item.Fields = nil
 	item.Description = ""
+	if item.StateCategory == "" {
+		item.StateCategory = azure.FallbackStateCategory(item.State)
+	}
 	return item
 }
 

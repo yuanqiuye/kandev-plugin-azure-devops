@@ -415,6 +415,8 @@
   "workItemQuery": "工作項查詢",
   "workItemQuery2": "工作項查詢",
   "workItemSearchPlaceholder": "工作項編號或標題中的字詞",
+  "workItemStateOpen": "未完成",
+  "workItemStateToDo": "待辦 (To Do)",
   "workItemUnavailable": "工作項不可用。",
   "workItemWatchFieldsRequired": "專案、WIQL、儲存庫、工作流程、步驟、代理程式和執行器均為必填項。",
   "workItemWatches": "工作項監控",

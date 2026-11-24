@@ -53,16 +53,21 @@ type ConnectionView struct {
 // Connections owns workspace connection lifecycle, Microsoft sign-in, token
 // renewal, and health. Every credential write holds the workspace lock.
 type Connections struct {
-	store     *store.Store
-	flows     *store.Flows
-	newClient ClientFactory
-	entra     auth.IdentityProvider
-	azCLI     auth.AzureCLIProvider
-	config    func(context.Context) (map[string]any, error)
-	locks     workspaceLocks
-	azCacheMu sync.Mutex
-	azTokens  map[string]cachedAzToken
-	now       func() time.Time
+	store            *store.Store
+	flows            *store.Flows
+	newClient        ClientFactory
+	entra            auth.IdentityProvider
+	azCLI            auth.AzureCLIProvider
+	config           func(context.Context) (map[string]any, error)
+	locks            workspaceLocks
+	azCacheMu        sync.Mutex
+	azTokens         map[string]cachedAzToken
+	catalogMu        sync.Mutex
+	repoCatalogs     map[string]cachedRepoCatalog
+	repoInflight     map[string]*inflightRepos
+	projectRepoCache map[string]map[string]cachedProjectRepos
+	teamCache        map[string]map[string]cachedTeamList
+	now              func() time.Time
 }
 
 // ConnectionsOptions configures optional collaborators.
@@ -217,6 +222,9 @@ func (c *Connections) savePAT(ctx context.Context, workspaceID, organizationURL 
 	if err := c.store.SaveConnection(ctx, workspaceID, next); err != nil {
 		return false, errors.Join(err, c.restorePAT(ctx, workspaceID, pat != "", previousPAT, hadPAT))
 	}
+	if changed {
+		c.clearWorkspaceCaches(workspaceID)
+	}
 	if wasNonPAT {
 		c.discardOAuthTokens(ctx, workspaceID)
 		c.clearAzCLIToken(workspaceID)
@@ -351,6 +359,7 @@ func (c *Connections) copyInto(ctx context.Context, targetWorkspaceID string, so
 	}
 	c.discardOAuthTokens(ctx, targetWorkspaceID)
 	c.clearAzCLIToken(targetWorkspaceID)
+	c.clearWorkspaceCaches(targetWorkspaceID)
 	return nil
 }
 
@@ -367,6 +376,7 @@ func (c *Connections) Delete(ctx context.Context, workspaceID string) error {
 		}
 	}
 	c.clearAzCLIToken(workspaceID)
+	c.clearWorkspaceCaches(workspaceID)
 	c.flows.Purge(ctx, workspaceID, c.now(), true)
 	return c.store.DeleteConnection(ctx, workspaceID)
 }

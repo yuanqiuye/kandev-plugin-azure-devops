@@ -110,7 +110,7 @@ export function useAzureDevOpsWorkItemSearch(workspaceId?: string) {
     setState({ data: [], loading: false, error: null });
   }, [workspaceId]);
   const search = useCallback(
-    async (request: { project: string; wiql: string; top?: number }) => {
+    async (request: { project: string; wiql: string; top?: number; stateCategory?: string }) => {
       if (!workspaceId) return;
       const current = ++generation.current.value;
       setState((previous) => ({ ...previous, loading: true, error: null }));

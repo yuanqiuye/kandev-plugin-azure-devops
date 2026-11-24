@@ -83,6 +83,7 @@ const DEFAULT_FILTERS: AzureDevOpsFiltersState = {
   text: "",
   top: 50,
   status: "active",
+  workItemState: "",
   creator: "",
   reviewer: "",
   teamId: "",
@@ -385,7 +386,13 @@ function useAzureSearch({
         void settleScopedSearch(
           scopedWorkItemWiql(workspaceId, searchFilters),
           isCurrent,
-          (wiql) => workItems.search({ project: searchFilters.projectId, wiql, top: searchFilters.top }),
+          (wiql) =>
+            workItems.search({
+              project: searchFilters.projectId,
+              wiql,
+              top: searchFilters.top,
+              stateCategory: searchFilters.workItemState || undefined,
+            }),
           (error: unknown) =>
             currentHost().toast.error(error instanceof Error ? error.message : String(error)),
         );

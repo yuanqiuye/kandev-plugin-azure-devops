@@ -415,6 +415,8 @@
   "workItemQuery": "작업 항목 쿼리",
   "workItemQuery2": "작업 항목 쿼리",
   "workItemSearchPlaceholder": "작업 항목 번호 또는 제목의 단어",
+  "workItemStateOpen": "미완료",
+  "workItemStateToDo": "할 일 (To Do)",
   "workItemUnavailable": "작업 항목을 사용할 수 없습니다.",
   "workItemWatchFieldsRequired": "프로젝트, WIQL, 리포지토리, 워크플로, 단계, 에이전트, 실행기가 필요합니다.",
   "workItemWatches": "작업 항목 감시",

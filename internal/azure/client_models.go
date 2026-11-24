@@ -38,19 +38,20 @@ type Identity struct {
 // WorkItem is a hydrated Azure Boards work item. Fields retains provider
 // extensions while the named fields drive the Kandev browse UI.
 type WorkItem struct {
-	ID          int            `json:"id"`
-	Revision    int            `json:"revision"`
-	Title       string         `json:"title"`
-	Description string         `json:"description,omitempty"`
-	State       string         `json:"state"`
-	Type        string         `json:"type"`
-	Project     string         `json:"project,omitempty"`
-	AreaPath    string         `json:"areaPath,omitempty"`
-	AssignedTo  string         `json:"assignedTo,omitempty"`
-	Tags        []string       `json:"tags,omitempty"`
-	WebURL      string         `json:"webUrl,omitempty"`
-	APIURL      string         `json:"apiUrl,omitempty"`
-	Fields      map[string]any `json:"fields,omitempty"`
+	ID            int            `json:"id"`
+	Revision      int            `json:"revision"`
+	Title         string         `json:"title"`
+	Description   string         `json:"description,omitempty"`
+	State         string         `json:"state"`
+	StateCategory string         `json:"stateCategory,omitempty"`
+	Type          string         `json:"type"`
+	Project       string         `json:"project,omitempty"`
+	AreaPath      string         `json:"areaPath,omitempty"`
+	AssignedTo    string         `json:"assignedTo,omitempty"`
+	Tags          []string       `json:"tags,omitempty"`
+	WebURL        string         `json:"webUrl,omitempty"`
+	APIURL        string         `json:"apiUrl,omitempty"`
+	Fields        map[string]any `json:"fields,omitempty"`
 }
 
 type WorkItemSearchResult struct {

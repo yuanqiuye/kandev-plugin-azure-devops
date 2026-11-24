@@ -13,6 +13,7 @@ import { canSearch } from "./search-query";
 import { SearchablePicker, type PickerOption } from "./searchable-picker";
 import { ANY_OPTION } from "./sprints-model";
 import { personPickerOptions } from "./pull-request-people";
+import { normalizeWorkItemStateFilter, type WorkItemStateFilter } from "./work-item-state";
 import type {
   AzureDevOpsIdentity,
   AzureDevOpsProject,
@@ -32,6 +33,8 @@ export type AzureDevOpsFiltersState = {
   text: string;
   top: number;
   status: string;
+  /** Optional work-item workflow state filter (open, todo, in_progress, done). */
+  workItemState?: WorkItemStateFilter;
   creator: string;
   reviewer: string;
   /** Optional work-item team filter: the team's areas. */
@@ -280,6 +283,30 @@ function WorkItemFilters({
         disabled={!filters.teamId}
         compact={compact}
       />
+      <Field compact={compact}>
+        <Label htmlFor={`azure-devops-filter-work-item-state${idSuffix}`}>{t("fieldState")}</Label>
+        <Select
+          value={filters.workItemState || ANY_OPTION}
+          onValueChange={(value) =>
+            onChange("workItemState", value === ANY_OPTION ? "" : normalizeWorkItemStateFilter(value))
+          }
+        >
+          <SelectTrigger
+            id={`azure-devops-filter-work-item-state${idSuffix}`}
+            data-testid={`azure-devops-filter-work-item-state${idSuffix}`}
+            className="w-full"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY_OPTION}>{t("statusAny")}</SelectItem>
+            <SelectItem value="open">{t("workItemStateOpen")}</SelectItem>
+            <SelectItem value="todo">{t("workItemStateToDo")}</SelectItem>
+            <SelectItem value="in_progress">{t("inProgress")}</SelectItem>
+            <SelectItem value="done">{t("done")}</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
       <Field compact={compact}>
         <Label htmlFor={`azure-devops-filter-text${idSuffix}`}>{t("commonSearch")}</Label>
         <Input

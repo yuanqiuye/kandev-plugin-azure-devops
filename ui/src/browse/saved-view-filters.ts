@@ -1,11 +1,15 @@
 import type { AzureDevOpsFiltersState } from "./filters";
 import type { AzureDevOpsSavedView } from "./types";
+import { normalizeWorkItemStateFilter } from "./work-item-state";
 
-/** The team and sprint filters a saved work-item view records. */
-export function workItemViewScope(filters: AzureDevOpsFiltersState): Pick<AzureDevOpsSavedView, "teamId" | "iterationId"> {
+/** The team, sprint, and state filters a saved work-item view records. */
+export function workItemViewScope(
+  filters: AzureDevOpsFiltersState,
+): Pick<AzureDevOpsSavedView, "teamId" | "iterationId" | "status"> {
   return {
     ...(filters.teamId ? { teamId: filters.teamId } : {}),
     ...(filters.iterationId ? { iterationId: filters.iterationId } : {}),
+    ...(filters.workItemState ? { status: filters.workItemState } : {}),
   };
 }
 
@@ -14,6 +18,7 @@ export function filtersFromSavedView(
   current: AzureDevOpsFiltersState,
   view: AzureDevOpsSavedView,
 ): AzureDevOpsFiltersState {
+  const isWorkItem = view.kind === "work_item";
   return {
     ...current,
     projectId: view.projectId,
@@ -21,7 +26,8 @@ export function filtersFromSavedView(
     wiql: view.wiql ?? current.wiql,
     text: "",
     top: view.top ?? 50,
-    status: view.status ?? "active",
+    status: isWorkItem ? current.status : (view.status ?? "active"),
+    workItemState: isWorkItem ? normalizeWorkItemStateFilter(view.status) : "",
     creator: view.creator ?? "",
     reviewer: view.reviewer ?? "",
     teamId: view.teamId ?? "",

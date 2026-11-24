@@ -14,6 +14,7 @@ type browseCalls struct {
 	workItemUpdates []azure.WorkItemAssignmentRequest
 	pullRequestSkip []int
 	pullRequestUser []string
+	wiql            string
 }
 
 func boardItem(id int, title, column string) azure.BoardWorkItem {
@@ -43,6 +44,9 @@ func (c *fakeClient) QueryWIQL(_ context.Context, projectID, wiql string, top in
 	if err := c.authorize(); err != nil {
 		return nil, err
 	}
+	c.azure.mu.Lock()
+	c.azure.browse.wiql = wiql
+	c.azure.mu.Unlock()
 	if wiql == "BAD" {
 		return nil, &azure.APIError{StatusCode: 400, Endpoint: "/_apis/wit/wiql", Body: "bad query"}
 	}

@@ -254,6 +254,7 @@ func (c *Connections) replaceWithOAuth(ctx context.Context, flow store.Flow, acc
 	}
 	_ = c.store.DeletePAT(persistCtx, workspaceID)
 	c.clearAzCLIToken(workspaceID)
+	c.clearWorkspaceCaches(workspaceID)
 	return nil
 }
 
@@ -286,6 +287,7 @@ func (c *Connections) signOut(ctx context.Context, workspaceID string) error {
 	connection.TokenExpiresAt = nil
 	connection.Generation++
 	connection.UpdatedAt = c.now().UTC()
+	c.clearWorkspaceCaches(workspaceID)
 	return c.store.SaveConnection(ctx, workspaceID, connection)
 }
 

@@ -22,7 +22,7 @@ const (
 	restAPIVersion       = "7.1"
 	previewAPIVersion    = "7.1-preview.1"
 	maxErrorBodyBytes    = 4096
-	maxResponseBodyBytes = 16 << 20
+	maxResponseBodyBytes = 128 << 20
 	workItemBatchSize    = 200
 	branchResultLimit    = 1000
 	defaultPRPageSize    = 50
@@ -44,15 +44,17 @@ func AsAPIError(err error, target **APIError) bool { return errors.As(err, targe
 
 // RESTClient reads Azure DevOps Services directly over HTTP.
 type RESTClient struct {
-	organization string
-	auth         Authorizer
-	httpClient   *http.Client
-	initErr      error
+	organization  string
+	auth          Authorizer
+	httpClient    *http.Client
+	initErr       error
+	stateMu       sync.Mutex
+	projectStates map[string]*projectStateCatalog
 }
 
 func NewRESTClient(organizationURL string, auth Authorizer, httpClient *http.Client) *RESTClient {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 	if auth == nil {
 		return &RESTClient{httpClient: httpClient, initErr: errors.New("azure devops: credential is required")}
@@ -283,6 +285,7 @@ func (c *RESTClient) QueryWIQL(ctx context.Context, projectID, wiql string, top 
 	if err != nil {
 		return nil, err
 	}
+	c.populateWorkItemStateCategories(ctx, projectID, items)
 	return &WorkItemSearchResult{Items: items, Count: len(items)}, nil
 }
 
@@ -324,6 +327,7 @@ func (c *RESTClient) GetWorkItem(ctx context.Context, projectID string, id int) 
 		return nil, err
 	}
 	item := convertWorkItem(raw)
+	item.StateCategory = c.cachedOrFallbackStateCategory(projectID, item)
 	return &item, nil
 }
 
@@ -394,6 +398,61 @@ func (c *RESTClient) GetCurrentIdentity(ctx context.Context) (*Identity, error) 
 	return &Identity{ID: auth.ID, DisplayName: auth.DisplayName, UniqueName: auth.Email}, nil
 }
 
+const (
+	teamsPageSize   = 1000
+	teamsPageWindow = 8
+	maxTeamPages    = 200
+)
+
+func listAllTeams[T any](ctx context.Context, c *RESTClient, endpoint string) ([]T, error) {
+	var first struct {
+		Value []T `json:"value"`
+	}
+	firstEndpoint := fmt.Sprintf("%s&$top=%d&$skip=0", endpoint, teamsPageSize)
+	if err := c.doJSON(ctx, http.MethodGet, firstEndpoint, nil, &first); err != nil {
+		return nil, err
+	}
+	all := first.Value
+	// Azure DevOps returns up to teamsPageSize (1,000) on /teams, whereas
+	// endpoints or fakes that cap $top at 100 return exactly 100. Any other
+	// count below teamsPageSize means the entire list arrived in page 0.
+	if len(all) < listPageSize || (len(all) > listPageSize && len(all) < teamsPageSize) {
+		return all, nil
+	}
+	step := len(all)
+	for page := 1; page < maxTeamPages; page += teamsPageWindow {
+		count := min(teamsPageWindow, maxTeamPages-page)
+		pages := make([][]T, count)
+		errs := make([]error, count)
+		var wg sync.WaitGroup
+		for offset := range count {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				var response struct {
+					Value []T `json:"value"`
+				}
+				paged := fmt.Sprintf("%s&$top=%d&$skip=%d", endpoint, step, (page+offset)*step)
+				errs[offset] = c.doJSON(ctx, http.MethodGet, paged, nil, &response)
+				pages[offset] = response.Value
+			}()
+		}
+		wg.Wait()
+		for _, err := range errs {
+			if err != nil {
+				return nil, err
+			}
+		}
+		for _, batch := range pages {
+			all = append(all, batch...)
+			if len(batch) < step {
+				return all, nil
+			}
+		}
+	}
+	return all, nil
+}
+
 func (c *RESTClient) ListTeams(ctx context.Context, projectID string) ([]Team, error) {
 	type rawTeam struct {
 		ID          string `json:"id"`
@@ -402,7 +461,7 @@ func (c *RESTClient) ListTeams(ctx context.Context, projectID string) ([]Team, e
 		ProjectName string `json:"projectName"`
 	}
 	endpoint := fmt.Sprintf("/_apis/projects/%s/teams?api-version=%s", pathPart(projectID), restAPIVersion)
-	raws, err := listAllPages[rawTeam](ctx, c, endpoint)
+	raws, err := listAllTeams[rawTeam](ctx, c, endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -503,6 +562,7 @@ func (c *RESTClient) GetBoardSnapshot(ctx context.Context, projectID, teamID, bo
 	if err != nil {
 		return nil, err
 	}
+	c.populateWorkItemStateCategories(ctx, projectID, items)
 	result := make([]BoardWorkItem, 0, len(items))
 	for _, item := range items {
 		columnID, done := boardItemPlacement(board, item)
