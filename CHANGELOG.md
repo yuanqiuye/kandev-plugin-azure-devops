@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2026-11-24
+
+### Fixed
+
+- Scale team and repository loading for large Azure DevOps organizations (`$top=1000` team paging, detached singleflight catalog caching, sub-1 MiB action paging, windowed large comboboxes, and direct `visualstudio.com` / `dev.azure.com` URL search) and distinguish work-item states (`Proposed` / `InProgress` / `Completed` metadata, state filter, `Done` preset, and grouped Open vs Done results) (f1efded).
+
 ## [0.3.0] - 2026-11-24
 
 ### Added
