@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0] - 2026-11-24
+
+### Added
+
+- Workspace connection with Azure CLI (`az account get-access-token`), with
+  in-memory token caching, pre-expiry refresh, and 401 retry (a5dfa39).
+
 ## [0.2.0] - 2026-11-20
 
 ### Added
