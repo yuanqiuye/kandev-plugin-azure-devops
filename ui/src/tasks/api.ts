@@ -16,8 +16,51 @@ export type PullRequestLink = {
 export type PullRequestLinkStatus = PullRequestLink & {
   status?: string;
   isDraft?: boolean;
+  autoFixStatus?: string;
   taskStatus?: ReviewTaskStatus;
   error?: string;
+};
+
+export type PRDraftReply = {
+  id: string;
+  threadId: number;
+  author?: string;
+  filePath?: string;
+  line?: number;
+  threadExcerpt?: string;
+  content: string;
+  resolveThread: boolean;
+};
+
+export type PRRemediationDraft = {
+  draftId: string;
+  summary: string;
+  hasChanges: boolean;
+  commitMessage?: string;
+  replies: PRDraftReply[];
+  createdAt?: string;
+};
+
+export type PRAutoFixState = {
+  repositoryId: string;
+  pullRequestId: number;
+  enabled: boolean;
+  requireApproval: boolean;
+  status: "idle" | "running" | "awaiting_approval" | "applying" | "exhausted" | "paused" | string;
+  roundCount: number;
+  maxRounds: number;
+  lastDispatchedAt?: string;
+  lastError?: string;
+  lastErrorAt?: string;
+  pendingDraft?: PRRemediationDraft;
+};
+
+export type ApprovePRDraftReplyInput = {
+  id: string;
+  threadId: number;
+  send: boolean;
+  content: string;
+  resolveThread: boolean;
 };
 
 export type WorkItemLink = {
@@ -93,6 +136,73 @@ export function createTaskLinksApi(host: PluginHostApi) {
         },
         { signal },
       ),
+    getAutoFix: async (
+      selector: TaskSelector,
+      pr: { repositoryId: string; pullRequestId: number },
+      signal?: AbortSignal,
+    ): Promise<PRAutoFixState> => {
+      const response = await onTask<{ state: PRAutoFixState }>("pull_requests.autofix.get", selector, pr, signal);
+      return response.state;
+    },
+    updateAutoFix: async (
+      selector: TaskSelector,
+      body: { repositoryId: string; pullRequestId: number; enabled?: boolean; requireApproval?: boolean },
+      signal?: AbortSignal,
+    ): Promise<PRAutoFixState> => {
+      const response = await onTask<{ state: PRAutoFixState }>("pull_requests.autofix.update", selector, body, signal);
+      return response.state;
+    },
+    triggerAutoFix: async (
+      selector: TaskSelector,
+      pr: { repositoryId: string; pullRequestId: number },
+      signal?: AbortSignal,
+    ): Promise<PRAutoFixState> => {
+      const response = await onTask<{ state: PRAutoFixState }>("pull_requests.autofix.trigger", selector, pr, signal);
+      return response.state;
+    },
+    approveAutoFix: async (
+      selector: TaskSelector,
+      body: {
+        repositoryId: string;
+        pullRequestId: number;
+        draftId: string;
+        commitPush: boolean;
+        commitMessage: string;
+        replies: ApprovePRDraftReplyInput[];
+      },
+      signal?: AbortSignal,
+    ): Promise<PRAutoFixState> => {
+      const response = await onTask<{ state: PRAutoFixState }>("pull_requests.autofix.approve", selector, body, signal);
+      return response.state;
+    },
+    reviseAutoFix: async (
+      selector: TaskSelector,
+      body: { repositoryId: string; pullRequestId: number; draftId: string; feedback: string },
+      signal?: AbortSignal,
+    ): Promise<PRAutoFixState> => {
+      const response = await onTask<{ state: PRAutoFixState }>("pull_requests.autofix.revise", selector, body, signal);
+      return response.state;
+    },
+    dismissAutoFix: async (
+      selector: TaskSelector,
+      body: { repositoryId: string; pullRequestId: number; draftId: string },
+      signal?: AbortSignal,
+    ): Promise<PRAutoFixState> => {
+      const response = await onTask<{ state: PRAutoFixState }>("pull_requests.autofix.dismiss", selector, body, signal);
+      return response.state;
+    },
+    replyPullRequest: (
+      selector: TaskSelector,
+      body: {
+        repositoryId: string;
+        pullRequestId: number;
+        threadId?: number;
+        threadRef?: string;
+        content: string;
+        resolveThread?: boolean;
+      },
+      signal?: AbortSignal,
+    ) => onTask<{ threadId: number; commentId: number }>("pull_requests.reply", selector, body, signal),
   };
 }
 

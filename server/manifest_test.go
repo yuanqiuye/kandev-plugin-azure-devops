@@ -78,9 +78,13 @@ func TestManifestIconIsTheOfficialShapeInGray(t *testing.T) {
 	}
 }
 
-// actionKeyPattern mirrors Kandev's manifest validator; plugin-pack does not
-// check it, so an invalid key would only fail at install time.
-var actionKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+// actionKeyPattern and agentToolNamePattern mirror Kandev's manifest
+// validator; plugin-pack does not check them, so an invalid identifier would
+// only fail at install time.
+var (
+	actionKeyPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	agentToolNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_]{0,31}$`)
+)
 
 func TestManifestActionKeysMatchTheHostGrammar(t *testing.T) {
 	contents, err := os.ReadFile("../manifest.yaml")
@@ -89,10 +93,20 @@ func TestManifestActionKeysMatchTheHostGrammar(t *testing.T) {
 		Actions []struct {
 			Key string `yaml:"key"`
 		} `yaml:"actions"`
+		AgentTools []struct {
+			Name        string `yaml:"name"`
+			Description string `yaml:"description"`
+		} `yaml:"agent_tools"`
 	}
 	require.NoError(t, yaml.Unmarshal(contents, &manifest))
 	require.NotEmpty(t, manifest.Actions)
 	for _, action := range manifest.Actions {
 		require.Regexp(t, actionKeyPattern, action.Key)
+	}
+	require.NotEmpty(t, manifest.AgentTools)
+	for _, tool := range manifest.AgentTools {
+		require.Regexp(t, agentToolNamePattern, tool.Name)
+		require.NotEmpty(t, strings.TrimSpace(tool.Description))
+		require.LessOrEqual(t, len(tool.Description), 1024)
 	}
 }

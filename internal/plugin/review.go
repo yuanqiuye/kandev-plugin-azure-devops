@@ -12,6 +12,7 @@ type ReviewCheck struct {
 	Label  string `json:"label"`
 	State  string `json:"state"`
 	Detail string `json:"detail,omitempty"`
+	URL    string `json:"url,omitempty"`
 }
 
 // ReviewApproval summarizes reviewer votes.
@@ -36,10 +37,11 @@ type ReviewTaskStatus struct {
 // set, and TaskStatus omitted, when Azure DevOps could not be read.
 type PullRequestStatus struct {
 	PullRequestLink
-	Status     string            `json:"status,omitempty"`
-	IsDraft    bool              `json:"isDraft,omitempty"`
-	TaskStatus *ReviewTaskStatus `json:"taskStatus,omitempty"`
-	Error      string            `json:"error,omitempty"`
+	Status        string            `json:"status,omitempty"`
+	IsDraft       bool              `json:"isDraft,omitempty"`
+	AutoFixStatus string            `json:"autoFixStatus,omitempty"`
+	TaskStatus    *ReviewTaskStatus `json:"taskStatus,omitempty"`
+	Error         string            `json:"error,omitempty"`
 }
 
 // reviewTaskStatus maps Azure pull request feedback to the host contract.
@@ -53,7 +55,10 @@ func reviewTaskStatus(feedback *PullRequestFeedback) *ReviewTaskStatus {
 		if label == "" {
 			label = policy.ID
 		}
-		checks = append(checks, ReviewCheck{ID: policy.ID, Label: label, State: policyCheckState(policy.Status), Detail: policy.Status})
+		checks = append(checks, ReviewCheck{
+			ID: policy.ID, Label: label, State: policyCheckState(policy.Status),
+			Detail: policy.Status, URL: policy.BuildURL,
+		})
 	}
 	return &ReviewTaskStatus{
 		Number:             feedback.PullRequest.ID,
@@ -137,12 +142,15 @@ func reviewApproval(reviewers []azure.Reviewer) *ReviewApproval {
 func unresolvedThreads(threads []azure.Thread) int {
 	count := 0
 	for _, thread := range threads {
+		if thread.IsDeleted {
+			continue
+		}
 		status := strings.ToLower(thread.Status)
 		if status != "active" && status != "pending" {
 			continue
 		}
 		for _, comment := range thread.Comments {
-			if !strings.EqualFold(comment.CommentType, "system") {
+			if !comment.IsDeleted && !strings.EqualFold(comment.CommentType, "system") {
 				count++
 				break
 			}

@@ -812,11 +812,21 @@ func (c *RESTClient) ListPolicyEvaluations(ctx context.Context, projectID string
 		return nil, err
 	}
 	items := make([]PolicyEvaluation, 0, len(response.Value))
+	failedBuildsEnriched := 0
 	for _, raw := range response.Value {
-		items = append(items, PolicyEvaluation{
-			ID: raw.ID, Status: raw.Status, Name: raw.Configuration.Type.DisplayName,
-			IsBlocking: raw.Configuration.IsBlocking,
-		})
+		item := c.convertPolicyEvaluation(projectID, raw)
+		if (strings.EqualFold(item.Status, "rejected") || strings.EqualFold(item.Status, "broken")) &&
+			item.BuildID > 0 && failedBuildsEnriched < maxFailedBuildTimelines {
+			failedBuildsEnriched++
+			if timeline := c.fetchBuildFailureSummary(ctx, projectID, item.BuildID); timeline != "" {
+				if item.Output != "" {
+					item.Output += "\n" + timeline
+				} else {
+					item.Output = timeline
+				}
+			}
+		}
+		items = append(items, item)
 	}
 	return items, nil
 }
@@ -1011,7 +1021,17 @@ type rawPolicyEvaluation struct {
 		Type       struct {
 			DisplayName string `json:"displayName"`
 		} `json:"type"`
+		Settings struct {
+			DisplayName string `json:"displayName"`
+		} `json:"settings"`
 	} `json:"configuration"`
+	Context struct {
+		BuildID             int      `json:"buildId"`
+		BuildDefinitionName string   `json:"buildDefinitionName"`
+		ErrorMessage        string   `json:"errorMessage"`
+		StatusText          string   `json:"statusText"`
+		BuildOutputPreview  []string `json:"buildOutputPreview"`
+	} `json:"context"`
 }
 
 func convertRepository(raw rawRepository) Repository {

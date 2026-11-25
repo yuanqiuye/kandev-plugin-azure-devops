@@ -16,18 +16,34 @@ import (
 
 // fakeAzure is an in-memory Azure DevOps organization keyed by PAT.
 type fakeAzure struct {
-	mu           sync.Mutex
-	validPAT     string
-	repositories []azure.Repository
-	branches     map[string][]azure.Branch
-	projects     []azure.Project
-	created      []string
-	validBearers map[string]bool
-	browse       browseCalls
-	pullRequests map[int]azure.PullRequest
-	createdPRs   []azure.CreatePullRequestRequest
-	myTeamsErr   error
-	childrenErr  error
+	mu            sync.Mutex
+	validPAT      string
+	repositories  []azure.Repository
+	branches      map[string][]azure.Branch
+	projects      []azure.Project
+	created       []string
+	validBearers  map[string]bool
+	browse        browseCalls
+	pullRequests  map[int]azure.PullRequest
+	prThreads     map[int][]azure.Thread
+	prPolicies    map[int][]azure.PolicyEvaluation
+	threadReplies []fakeThreadReply
+	threadStatus  []fakeThreadStatusUpdate
+	createdPRs    []azure.CreatePullRequestRequest
+	myTeamsErr    error
+	childrenErr   error
+}
+
+type fakeThreadReply struct {
+	PullRequestID int
+	ThreadID      int
+	Content       string
+}
+
+type fakeThreadStatusUpdate struct {
+	PullRequestID int
+	ThreadID      int
+	Status        string
 }
 
 func newFakeAzure() *fakeAzure {

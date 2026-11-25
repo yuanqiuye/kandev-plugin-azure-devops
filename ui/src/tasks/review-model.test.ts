@@ -11,6 +11,13 @@ describe("review model", () => {
     );
     expect(summary).toMatchObject({ reviewKey: "r!3", title: "Pull request !3", state: "merged" });
     expect(summary?.taskStatus).toBeUndefined();
+
+    const awaiting = toReviewSummary(
+      { projectId: "p", repositoryId: "R", pullRequestId: 4, status: "active", autoFixStatus: "awaiting_approval" },
+      "Pull request !4",
+      "Review draft",
+    );
+    expect(awaiting?.statusBadge).toEqual({ label: "Review draft", tone: "warning" });
   });
 
   it("flattens workspace associations", () => {
@@ -32,21 +39,36 @@ describe("review model", () => {
         { id: "3", displayName: "Ken", vote: -10, isRequired: false, hasDeclined: false },
       ],
       threads: [
-        { id: 1, status: "active", comments: [{ id: 1, content: "Fix", author: { id: "1", displayName: "Grace" }, commentType: "text" }] },
+        {
+          id: 1,
+          status: "active",
+          filePath: "src/auth.ts",
+          line: 14,
+          comments: [
+            { id: 1, content: "Fix", author: { id: "1", displayName: "Grace" }, commentType: "text" },
+            { id: 2, content: "Will do", author: { id: "u", displayName: "Ada" }, commentType: "text" },
+            { id: 3, content: "Deleted", isDeleted: true, author: { id: "u", displayName: "Ada" }, commentType: "text" },
+          ],
+        },
         { id: 2, status: "fixed", comments: [{ id: 1, content: "Done", author: { id: "1", displayName: "Grace" }, commentType: "text" }] },
         { id: 3, status: "active", comments: [{ id: 1, content: "Policy", author: { id: "s", displayName: "" }, commentType: "system" }] },
+        { id: 4, status: "active", isDeleted: true, comments: [{ id: 1, content: "Gone", author: { id: "1", displayName: "Grace" }, commentType: "text" }] },
       ],
       linkedWorkItems: [],
-      policies: [{ id: "b", name: "Build", status: "running", isBlocking: true }],
+      policies: [{ id: "b", name: "Build", status: "rejected", isBlocking: true, buildUrl: "https://x/build/1", output: "test failed" }],
       reviewState: "",
-      policyState: "pending",
+      policyState: "failure",
     } as AzureDevOpsPullRequestFeedback;
     const detail = toChangeRequestDetail(feedback, "Azure DevOps");
     expect(detail).toMatchObject({ number: 9, state: "open", draft: true, author: { name: "Ada" } });
     expect(detail.reviews.map((review) => review.state)).toEqual(["APPROVED", "CHANGES_REQUESTED"]);
     expect(detail.requestedReviewers).toEqual([{ name: "Linus" }]);
-    expect(detail.checks).toEqual([{ id: "b", name: "Build", state: "pending" }]);
-    expect(detail.comments.map((comment) => [comment.body, comment.resolved])).toEqual([["Fix", false], ["Done", true]]);
+    expect(detail.checks).toEqual([{ id: "b", name: "Build", state: "failure", url: "https://x/build/1", output: "test failed" }]);
+    expect(detail.comments.map((comment) => [comment.id, comment.parentId, comment.body, comment.path, comment.line, comment.resolved])).toEqual([
+      ["1-1", undefined, "Fix", "src/auth.ts", 14, false],
+      ["1-2", "1-1", "Will do", "src/auth.ts", 14, false],
+      ["2-1", undefined, "Done", undefined, undefined, true],
+    ]);
   });
 });
 

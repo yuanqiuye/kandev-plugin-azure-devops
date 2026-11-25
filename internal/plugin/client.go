@@ -39,6 +39,9 @@ type Client interface {
 	GetPullRequest(ctx context.Context, projectID, repositoryID string, id int) (*azure.PullRequest, error)
 	ListReviewers(ctx context.Context, projectID, repositoryID string, id int) ([]azure.Reviewer, error)
 	ListThreads(ctx context.Context, projectID, repositoryID string, id int) ([]azure.Thread, error)
+	ReplyToThread(ctx context.Context, projectID, repositoryID string, pullRequestID, threadID int, content string) (*azure.Comment, error)
+	CreateThread(ctx context.Context, projectID, repositoryID string, pullRequestID int, content string) (*azure.Thread, error)
+	UpdateThreadStatus(ctx context.Context, projectID, repositoryID string, pullRequestID, threadID int, status string) error
 	ListLinkedWorkItems(ctx context.Context, projectID, repositoryID string, id int) ([]azure.WorkItemRef, error)
 	ListPolicyEvaluations(ctx context.Context, projectID string, id int) ([]azure.PolicyEvaluation, error)
 	CreatePullRequest(ctx context.Context, projectID, repositoryID string, request azure.CreatePullRequestRequest) (*azure.PullRequest, error)

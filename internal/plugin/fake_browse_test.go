@@ -227,8 +227,93 @@ func (c *fakeClient) ListReviewers(context.Context, string, string, int) ([]azur
 	return []azure.Reviewer{{Identity: azure.Identity{DisplayName: "Grace Reviewer"}, Vote: 10}}, nil
 }
 
-func (c *fakeClient) ListThreads(context.Context, string, string, int) ([]azure.Thread, error) {
-	return nil, c.authorize()
+func (c *fakeClient) ListThreads(_ context.Context, _, _ string, id int) ([]azure.Thread, error) {
+	if err := c.authorize(); err != nil {
+		return nil, err
+	}
+	c.azure.mu.Lock()
+	defer c.azure.mu.Unlock()
+	if c.azure.prThreads != nil {
+		return append([]azure.Thread(nil), c.azure.prThreads[id]...), nil
+	}
+	return nil, nil
+}
+
+func (c *fakeClient) ReplyToThread(_ context.Context, _, _ string, pullRequestID, threadID int, content string) (*azure.Comment, error) {
+	if err := c.authorize(); err != nil {
+		return nil, err
+	}
+	c.azure.mu.Lock()
+	defer c.azure.mu.Unlock()
+	c.azure.threadReplies = append(c.azure.threadReplies, fakeThreadReply{
+		PullRequestID: pullRequestID, ThreadID: threadID, Content: content,
+	})
+	nextID := 100 + len(c.azure.threadReplies)
+	comment := azure.Comment{
+		ID:          nextID,
+		Content:     content,
+		Author:      azure.Identity{ID: "user-1", DisplayName: "Ada", UniqueName: "ada@example.com"},
+		CommentType: "text",
+	}
+	if c.azure.prThreads != nil {
+		threads := c.azure.prThreads[pullRequestID]
+		for i := range threads {
+			if threads[i].ID == threadID {
+				threads[i].Comments = append(threads[i].Comments, comment)
+				break
+			}
+		}
+		c.azure.prThreads[pullRequestID] = threads
+	}
+	return &comment, nil
+}
+
+func (c *fakeClient) CreateThread(_ context.Context, _, _ string, pullRequestID int, content string) (*azure.Thread, error) {
+	if err := c.authorize(); err != nil {
+		return nil, err
+	}
+	c.azure.mu.Lock()
+	defer c.azure.mu.Unlock()
+	c.azure.threadReplies = append(c.azure.threadReplies, fakeThreadReply{
+		PullRequestID: pullRequestID, ThreadID: 0, Content: content,
+	})
+	threadID := 200 + len(c.azure.threadReplies)
+	thread := azure.Thread{
+		ID:     threadID,
+		Status: "active",
+		Comments: []azure.Comment{{
+			ID:          1,
+			Content:     content,
+			Author:      azure.Identity{ID: "user-1", DisplayName: "Ada", UniqueName: "ada@example.com"},
+			CommentType: "text",
+		}},
+	}
+	if c.azure.prThreads != nil {
+		c.azure.prThreads[pullRequestID] = append(c.azure.prThreads[pullRequestID], thread)
+	}
+	return &thread, nil
+}
+
+func (c *fakeClient) UpdateThreadStatus(_ context.Context, _, _ string, pullRequestID, threadID int, status string) error {
+	if err := c.authorize(); err != nil {
+		return err
+	}
+	c.azure.mu.Lock()
+	defer c.azure.mu.Unlock()
+	c.azure.threadStatus = append(c.azure.threadStatus, fakeThreadStatusUpdate{
+		PullRequestID: pullRequestID, ThreadID: threadID, Status: status,
+	})
+	if c.azure.prThreads != nil {
+		threads := c.azure.prThreads[pullRequestID]
+		for i := range threads {
+			if threads[i].ID == threadID {
+				threads[i].Status = status
+				break
+			}
+		}
+		c.azure.prThreads[pullRequestID] = threads
+	}
+	return nil
 }
 
 func (c *fakeClient) ListLinkedWorkItems(context.Context, string, string, int) ([]azure.WorkItemRef, error) {
@@ -238,9 +323,14 @@ func (c *fakeClient) ListLinkedWorkItems(context.Context, string, string, int) (
 	return []azure.WorkItemRef{{ID: 101}}, nil
 }
 
-func (c *fakeClient) ListPolicyEvaluations(context.Context, string, int) ([]azure.PolicyEvaluation, error) {
+func (c *fakeClient) ListPolicyEvaluations(_ context.Context, _ string, id int) ([]azure.PolicyEvaluation, error) {
 	if err := c.authorize(); err != nil {
 		return nil, err
+	}
+	c.azure.mu.Lock()
+	defer c.azure.mu.Unlock()
+	if c.azure.prPolicies != nil {
+		return append([]azure.PolicyEvaluation(nil), c.azure.prPolicies[id]...), nil
 	}
 	return []azure.PolicyEvaluation{{ID: "build", Name: "Build", Status: "running", IsBlocking: true}}, nil
 }

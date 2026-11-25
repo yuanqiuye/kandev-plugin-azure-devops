@@ -36,8 +36,8 @@ capabilities:
   state: true
   secrets: true
   user_state: true
-  api_read: ["workspaces", "repositories", "tasks", "workflows", "agent_profiles", "executor_profiles"]
-  api_write: ["tasks"]
+  api_read: ["workspaces", "repositories", "tasks", "sessions", "workflows", "agent_profiles", "executor_profiles"]
+  api_write: ["tasks", "messages"]
   events: ["task.deleted"]
 
 # Browser and host actions. Bodies are untrusted and bounded; Kandev
@@ -83,6 +83,13 @@ actions:
   - { key: "pull_requests.link", scope: "task", max_body_bytes: 4096 }
   - { key: "pull_requests.unlink", scope: "task", max_body_bytes: 4096 }
   - { key: "pull_requests.create", scope: "task", max_body_bytes: 65536 }
+  - { key: "pull_requests.reply", scope: "task", max_body_bytes: 32768 }
+  - { key: "pull_requests.autofix.get", scope: "task", max_body_bytes: 1024 }
+  - { key: "pull_requests.autofix.update", scope: "task", max_body_bytes: 4096 }
+  - { key: "pull_requests.autofix.trigger", scope: "task", max_body_bytes: 1024 }
+  - { key: "pull_requests.autofix.approve", scope: "task", max_body_bytes: 65536 }
+  - { key: "pull_requests.autofix.revise", scope: "task", max_body_bytes: 32768 }
+  - { key: "pull_requests.autofix.dismiss", scope: "task", max_body_bytes: 1024 }
   - { key: "work_items.link", scope: "task", max_body_bytes: 4096 }
   - { key: "work_items.unlink", scope: "task", max_body_bytes: 4096 }
   - { key: "watches.list", scope: "workspace", max_body_bytes: 1024 }
@@ -135,6 +142,70 @@ agent_tools:
       read_only_hint: false
       destructive_hint: false
       idempotent_hint: true
+      open_world_hint: true
+  - name: "link_pull_request"
+    description: "Link an existing Azure Repos pull request to the current Kandev task (for example after opening it with an external MCP, CLI, or browser). Identify it by reference (full URL or Project/Repository!ID), pullRequestId, or sourceBranch (finds the active PR on that branch)."
+    surfaces: ["kanban-task"]
+    input_schema:
+      type: object
+      properties:
+        reference: { type: string, description: "Pull request URL (dev.azure.com or *.visualstudio.com), Project/Repository!ID, or !ID.", maxLength: 1000 }
+        pullRequestId: { type: integer, description: "Pull request number when linking in a task repository.", minimum: 1 }
+        sourceBranch: { type: string, description: "Source branch name to locate and link its active pull request.", maxLength: 250 }
+        targetBranch: { type: string, description: "Optional target branch to disambiguate when sourceBranch has multiple active pull requests.", maxLength: 250 }
+        repository: { type: string, description: "Project/Repository or repository name, required only when the task has several Azure Repos repositories.", maxLength: 300 }
+      additionalProperties: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+  - name: "save_pr_remediation_draft"
+    description: "Save a remediation draft (summary, optional commit message, and optional thread replies) for a linked Azure DevOps pull request so a human can review, edit, or approve it in Kandev's PR panel. When human approval is enabled, leave code changes uncommitted in the working tree and call this tool instead of committing, pushing, or replying."
+    surfaces: ["kanban-task"]
+    input_schema:
+      type: object
+      properties:
+        pullRequestId: { type: integer, description: "Linked pull request number. Optional when the task has one linked pull request.", minimum: 1 }
+        repository: { type: string, description: "Project/Repository or repository ID when the task has multiple linked pull requests.", maxLength: 300 }
+        summary: { type: string, description: "Concise summary of fixes, verification commands, or why no commit/reply is needed.", minLength: 1, maxLength: 10000 }
+        hasChanges: { type: boolean, description: "True when working-tree changes are ready to commit and push after approval." }
+        commitMessage: { type: string, description: "Proposed git commit message when hasChanges is true; omit when no commit is needed.", maxLength: 10000 }
+        replies:
+          type: array
+          maxItems: 50
+          description: "Proposed PR comment replies; omit or pass [] when no reply is needed."
+          items:
+            type: object
+            properties:
+              threadId: { type: integer, description: "Target pull request thread ID, or 0 for a general PR comment.", minimum: 0 }
+              content: { type: string, description: "Proposed reply Markdown.", minLength: 1, maxLength: 15000 }
+            required: ["threadId", "content"]
+            additionalProperties: false
+      required: ["summary"]
+      additionalProperties: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+  - name: "reply_pull_request_thread"
+    description: "Post a reply to a linked Azure DevOps pull request thread. Allowed only when human approval is disabled for that pull request; when human approval is enabled, call save_pr_remediation_draft instead."
+    surfaces: ["kanban-task"]
+    input_schema:
+      type: object
+      properties:
+        pullRequestId: { type: integer, description: "Linked pull request number. Optional when the task has one linked pull request.", minimum: 1 }
+        repository: { type: string, description: "Project/Repository or repository ID when the task has multiple linked pull requests.", maxLength: 300 }
+        threadId: { type: integer, description: "Pull request thread ID to reply to, or 0 for a general PR comment.", minimum: 0 }
+        content: { type: string, description: "Reply Markdown.", minLength: 1, maxLength: 15000 }
+        resolveThread: { type: boolean, description: "Mark the thread as Fixed after replying. Defaults to false (keep Active)." }
+      required: ["threadId", "content"]
+      additionalProperties: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
       open_world_hint: true
 
 ui:

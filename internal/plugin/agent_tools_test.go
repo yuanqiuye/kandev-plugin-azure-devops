@@ -100,3 +100,80 @@ func TestUnknownAgentToolIsAnError(t *testing.T) {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
 }
+
+func TestAgentToolLinkPullRequestByBranchReferenceAndID(t *testing.T) {
+	h := linksHarness(t)
+	h.azure.pullRequests = map[int]azure.PullRequest{
+		77: {
+			ID: 77, Title: "External PR via MCP", Status: "active",
+			SourceBranch: "feature/ext", TargetBranch: "main",
+			ProjectID: "p1", ProjectName: "Platform Team",
+			RepositoryID: "guid-api", RepositoryName: "api",
+			WebURL: "https://dev.azure.com/acme/Platform%20Team/_git/api/pullrequest/77",
+		},
+		88: {
+			ID: 88, Title: "External PR via URL", Status: "active",
+			SourceBranch: "feature/url", TargetBranch: "main",
+			ProjectID: "p1", ProjectName: "Platform Team",
+			RepositoryID: "guid-api", RepositoryName: "api",
+			WebURL: "https://dev.azure.com/acme/Platform%20Team/_git/api/pullrequest/88",
+		},
+		89: {
+			ID: 89, Title: "Backport PR", Status: "active",
+			SourceBranch: "feature/ambig", TargetBranch: "main",
+			ProjectID: "p1", ProjectName: "Platform Team",
+			RepositoryID: "guid-api", RepositoryName: "api",
+		},
+		90: {
+			ID: 90, Title: "Backport PR release", Status: "active",
+			SourceBranch: "feature/ambig", TargetBranch: "release",
+			ProjectID: "p1", ProjectName: "Platform Team",
+			RepositoryID: "guid-api", RepositoryName: "api",
+		},
+	}
+
+	callLink := func(args map[string]any) *pluginsdk.AgentToolResult {
+		t.Helper()
+		res, err := h.runtime.InvokeAgentTool(context.Background(), &pluginsdk.AgentToolRequest{
+			Name:      LinkPullRequestTool,
+			Arguments: args,
+			Context:   pluginsdk.AgentToolContext{WorkspaceID: "ws-1", TaskID: "task-1", SessionID: "s-1"},
+		})
+		if err != nil {
+			t.Fatalf("InvokeAgentTool(link_pull_request) error = %v", err)
+		}
+		return res
+	}
+
+	// 1. Missing identifier arguments -> clear error.
+	if res := callLink(map[string]any{}); !res.IsError {
+		t.Fatalf("expected error for empty args: %+v", res)
+	}
+
+	// 2. Active PR discovery by sourceBranch.
+	resBranch := callLink(map[string]any{"sourceBranch": "refs/heads/feature/ext"})
+	if resBranch.IsError || resBranch.StructuredContent["pullRequestId"] != 77 || resBranch.StructuredContent["linked"] != true {
+		t.Fatalf("link by branch = %+v", resBranch)
+	}
+
+	// 3. Link by visualstudio.com URL reference.
+	resURL := callLink(map[string]any{"reference": "https://acme.visualstudio.com/Platform%20Team/_git/api/pullrequest/88"})
+	if resURL.IsError || resURL.StructuredContent["pullRequestId"] != 88 {
+		t.Fatalf("link by URL = %+v", resURL)
+	}
+
+	// 4. Ambiguous sourceBranch requires targetBranch or pullRequestId, then succeeds with targetBranch.
+	if resAmbig := callLink(map[string]any{"sourceBranch": "feature/ambig"}); !resAmbig.IsError || !strings.Contains(resAmbig.Text, "!89") {
+		t.Fatalf("ambiguous branch = %+v", resAmbig)
+	}
+	resDisambig := callLink(map[string]any{"sourceBranch": "feature/ambig", "targetBranch": "release"})
+	if resDisambig.IsError || resDisambig.StructuredContent["pullRequestId"] != 90 {
+		t.Fatalf("disambiguated branch = %+v", resDisambig)
+	}
+
+	// Verify all 3 PRs are linked on task-1.
+	_, links := h.taskAction("task_links.get", nil)
+	if prs, _ := links["pullRequests"].([]any); len(prs) != 3 {
+		t.Fatalf("expected 3 linked PRs, got %v", links)
+	}
+}

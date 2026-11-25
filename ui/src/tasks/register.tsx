@@ -51,7 +51,11 @@ export function registerTaskIntegrations(registry: PluginRegistry, host: PluginH
     const token = reviews.beginRefresh(taskId);
     const links = await api.get({ taskId, ...(workspaceId ? { workspaceId } : {}) }, signal);
     const summaries = links.pullRequests.flatMap((link) => {
-      const summary = toReviewSummary(link, t("pullRequestFallbackTitle", { values: { id: link.pullRequestId } }));
+      const summary = toReviewSummary(
+        link,
+        t("pullRequestFallbackTitle", { values: { id: link.pullRequestId } }),
+        t("autoFixDraftReadyBadge"),
+      );
       return summary ? [summary] : [];
     });
     reviews.commit(taskId, token, summaries);
@@ -144,9 +148,11 @@ export function registerTaskIntegrations(registry: PluginRegistry, host: PluginH
       <AzureDevOpsReviewPanel
         presentation={props.presentation}
         workspaceId={props.workspaceId}
+        taskId={props.taskId}
         connectionScope={props.connectionScope}
         repositoryId={props.repositoryId}
         changeRequestNumber={props.changeRequestNumber}
+        onAutoFixStateChange={() => void refreshTask(props.workspaceId, props.taskId)}
       />
     ),
   });

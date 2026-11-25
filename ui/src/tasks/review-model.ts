@@ -29,9 +29,14 @@ export function pullRequestState(status: string | undefined, draft?: boolean): s
 }
 
 /** Maps a linked pull request to the host review summary. */
-export function toReviewSummary(link: PullRequestLinkStatus, fallbackTitle: string): ReviewSummary | null {
+export function toReviewSummary(
+  link: PullRequestLinkStatus,
+  fallbackTitle: string,
+  draftReadyLabel?: string,
+): ReviewSummary | null {
   if (!link.repositoryId || !link.projectId || !(link.pullRequestId > 0)) return null;
   const taskStatus = validTaskStatus(link.taskStatus);
+  const awaitingApproval = link.autoFixStatus === "awaiting_approval" && !!draftReadyLabel;
   return {
     providerId: PROVIDER_ID,
     reviewKey: reviewKey(link.repositoryId, link.pullRequestId),
@@ -41,6 +46,7 @@ export function toReviewSummary(link: PullRequestLinkStatus, fallbackTitle: stri
     repositoryId: link.repositoryId,
     changeRequestNumber: link.pullRequestId,
     state: taskStatus?.state ?? pullRequestState(link.status, link.isDraft),
+    ...(awaitingApproval ? { statusBadge: { label: draftReadyLabel, tone: "warning" } } : {}),
     ...(taskStatus ? { taskStatus } : {}),
   };
 }
@@ -126,18 +132,26 @@ export function toChangeRequestDetail(feedback: AzureDevOpsPullRequestFeedback, 
       id: policy.id,
       name: policy.name || policy.id,
       state: checkState(policy.status),
+      ...(policy.buildUrl ? { url: policy.buildUrl } : {}),
+      ...(policy.output ? { output: policy.output } : {}),
     })),
     comments: feedback.threads.flatMap((thread) => {
+      if (thread.isDeleted) return [];
       const resolved = !["active", "pending"].includes((thread.status ?? "").toLowerCase());
-      return (thread.comments ?? [])
-        .filter((comment) => comment.commentType !== "system" && comment.content?.trim())
-        .map((comment) => ({
-          id: `${thread.id}-${comment.id}`,
-          author: { name: comment.author?.displayName || unknownAuthor },
-          body: comment.content,
-          ...(comment.publishedAt ? { createdAt: comment.publishedAt } : {}),
-          resolved,
-        }));
+      const visible = (thread.comments ?? []).filter(
+        (comment) => !comment.isDeleted && comment.commentType !== "system" && comment.content?.trim(),
+      );
+      const rootId = visible.length > 0 ? `${thread.id}-${visible[0].id}` : "";
+      return visible.map((comment, index) => ({
+        id: `${thread.id}-${comment.id}`,
+        ...(index > 0 && rootId ? { parentId: rootId } : {}),
+        author: { name: comment.author?.displayName || unknownAuthor },
+        body: comment.content,
+        ...(comment.publishedAt ? { createdAt: comment.publishedAt } : {}),
+        ...(thread.filePath ? { path: thread.filePath } : {}),
+        ...(thread.line && thread.line > 0 ? { line: thread.line } : {}),
+        resolved,
+      }));
     }),
   };
 }

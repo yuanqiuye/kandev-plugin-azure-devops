@@ -151,17 +151,28 @@ type Reviewer struct {
 
 type Comment struct {
 	ID          int       `json:"id"`
+	ParentID    int       `json:"parentCommentId,omitempty"`
 	Content     string    `json:"content"`
 	Author      Identity  `json:"author"`
 	CommentType string    `json:"commentType"`
+	IsDeleted   bool      `json:"isDeleted,omitempty"`
 	PublishedAt time.Time `json:"publishedAt,omitempty"`
 	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
 }
 
-// UnmarshalJSON translates Azure's wire timestamp names while preserving
-// Kandev's public publishedAt/updatedAt response contract.
+// UnmarshalJSON translates Azure's wire timestamp and enum shapes while
+// preserving Kandev's public response contract.
 func (c *Comment) UnmarshalJSON(data []byte) error {
-	type commentAlias Comment
+	type commentAlias struct {
+		ID          int             `json:"id"`
+		ParentID    int             `json:"parentCommentId"`
+		Content     string          `json:"content"`
+		Author      Identity        `json:"author"`
+		CommentType json.RawMessage `json:"commentType"`
+		IsDeleted   bool            `json:"isDeleted"`
+		PublishedAt time.Time       `json:"publishedAt"`
+		UpdatedAt   time.Time       `json:"updatedAt"`
+	}
 	var wire struct {
 		commentAlias
 		PublishedDate   time.Time `json:"publishedDate"`
@@ -170,16 +181,129 @@ func (c *Comment) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
-	*c = Comment(wire.commentAlias)
-	c.PublishedAt = wire.PublishedDate
-	c.UpdatedAt = wire.LastUpdatedDate
+	*c = Comment{
+		ID:          wire.ID,
+		ParentID:    wire.ParentID,
+		Content:     wire.Content,
+		Author:      wire.Author,
+		CommentType: decodeCommentType(wire.CommentType),
+		IsDeleted:   wire.IsDeleted,
+		PublishedAt: wire.PublishedAt,
+		UpdatedAt:   wire.UpdatedAt,
+	}
+	if !wire.PublishedDate.IsZero() {
+		c.PublishedAt = wire.PublishedDate
+	}
+	if !wire.LastUpdatedDate.IsZero() {
+		c.UpdatedAt = wire.LastUpdatedDate
+	}
 	return nil
 }
 
+func decodeCommentType(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return str
+	}
+	var num int
+	if err := json.Unmarshal(raw, &num); err == nil {
+		switch num {
+		case 1:
+			return "text"
+		case 2:
+			return "codeChange"
+		case 3:
+			return "system"
+		}
+	}
+	return ""
+}
+
 type Thread struct {
-	ID       int       `json:"id"`
-	Status   string    `json:"status"`
-	Comments []Comment `json:"comments"`
+	ID        int       `json:"id"`
+	Status    string    `json:"status"`
+	FilePath  string    `json:"filePath,omitempty"`
+	Line      int       `json:"line,omitempty"`
+	IsDeleted bool      `json:"isDeleted,omitempty"`
+	Comments  []Comment `json:"comments"`
+}
+
+func (t *Thread) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ID            int             `json:"id"`
+		Status        json.RawMessage `json:"status"`
+		FilePath      string          `json:"filePath"`
+		Line          int             `json:"line"`
+		IsDeleted     bool            `json:"isDeleted"`
+		Comments      []Comment       `json:"comments"`
+		ThreadContext *struct {
+			FilePath       string `json:"filePath"`
+			RightFileStart *struct {
+				Line int `json:"line"`
+			} `json:"rightFileStart"`
+			LeftFileStart *struct {
+				Line int `json:"line"`
+			} `json:"leftFileStart"`
+		} `json:"threadContext"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	filePath := wire.FilePath
+	line := wire.Line
+	if filePath == "" && wire.ThreadContext != nil && wire.ThreadContext.FilePath != "" {
+		filePath = wire.ThreadContext.FilePath
+		if len(filePath) > 1 && filePath[0] == '/' {
+			filePath = filePath[1:]
+		}
+	}
+	if line == 0 && wire.ThreadContext != nil {
+		if wire.ThreadContext.RightFileStart != nil && wire.ThreadContext.RightFileStart.Line > 0 {
+			line = wire.ThreadContext.RightFileStart.Line
+		} else if wire.ThreadContext.LeftFileStart != nil && wire.ThreadContext.LeftFileStart.Line > 0 {
+			line = wire.ThreadContext.LeftFileStart.Line
+		}
+	}
+	*t = Thread{
+		ID:        wire.ID,
+		Status:    decodeThreadStatus(wire.Status),
+		FilePath:  filePath,
+		Line:      line,
+		IsDeleted: wire.IsDeleted,
+		Comments:  wire.Comments,
+	}
+	return nil
+}
+
+func decodeThreadStatus(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return str
+	}
+	var num int
+	if err := json.Unmarshal(raw, &num); err == nil {
+		switch num {
+		case 1:
+			return "active"
+		case 2:
+			return "fixed"
+		case 3:
+			return "wontFix"
+		case 4:
+			return "closed"
+		case 5:
+			return "byDesign"
+		case 6:
+			return "pending"
+		}
+	}
+	return ""
 }
 
 type WorkItemRef struct {
@@ -192,4 +316,7 @@ type PolicyEvaluation struct {
 	Status     string `json:"status"`
 	Name       string `json:"name"`
 	IsBlocking bool   `json:"isBlocking"`
+	BuildID    int    `json:"buildId,omitempty"`
+	BuildURL   string `json:"buildUrl,omitempty"`
+	Output     string `json:"output,omitempty"`
 }

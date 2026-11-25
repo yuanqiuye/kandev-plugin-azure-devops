@@ -44,6 +44,7 @@ type services struct {
 	credentials   *Credentials
 	links         *Links
 	taskLinks     *TaskLinks
+	autoFix       *AutoFix
 	mentions      *Mentions
 	watches       *Watches
 }
@@ -107,8 +108,11 @@ func (r *Runtime) SetHost(host pluginsdk.Host) {
 	})
 	links := NewLinks(stateStore, stateKeys)
 	tasks := func() TaskReader { return host.Tasks() }
+	sessions := func() SessionLister { return host.Sessions() }
+	messages := func() MessageSender { return host.Messages() }
 	hostRepositories := func() RepositoryLister { return host.Repositories() }
 	repositories := NewRepositories(connections)
+	autoFix := NewAutoFix(stateStore, connections, links, tasks, sessions, messages, host.Workspaces())
 	built := &services{
 		workspaces:  host.Workspaces(),
 		connections: connections,
@@ -119,8 +123,11 @@ func (r *Runtime) SetHost(host pluginsdk.Host) {
 		credentials: NewCredentials(connections, hostRepositories),
 		links:       links,
 		taskLinks:   NewTaskLinks(connections, links, tasks, hostRepositories),
+		autoFix:     autoFix,
 		mentions:    NewMentions(connections),
 	}
+	built.taskLinks.onUnlinkPullRequest = autoFix.RemovePullRequest
+	built.taskLinks.autoFixStatus = autoFix.StatusForLink
 	watchService := watches.NewService(watches.Dependencies{
 		Store: watches.NewStore(stateStore, stateKeys),
 		Client: func(ctx context.Context, workspaceID string) (watches.Client, string, error) {
@@ -145,6 +152,7 @@ func (r *Runtime) SetHost(host pluginsdk.Host) {
 	go NewHealthPoller(connections, host.Workspaces()).Run(ctx)
 	go links.reconcileDeletedTasks(ctx, host.Workspaces(), host.Tasks())
 	go watchService.Run(ctx)
+	go autoFix.Run(ctx)
 }
 
 // Stop cancels background work. It is safe to call more than once.
@@ -179,6 +187,11 @@ func (r *Runtime) HandleAction(ctx context.Context, request *pluginsdk.PluginAct
 	var response *pluginsdk.PluginActionResponse
 	if strings.HasPrefix(request.ActionKey, "repositories.") {
 		response, err = services.sourceControl.HandleAction(ctx, request)
+	} else if result, found, autoErr := services.autoFix.Handle(ctx, request.Context, request.ActionKey, request.Body); found {
+		if autoErr != nil {
+			return actionFailure(autoErr)
+		}
+		response, err = jsonAction(result)
 	} else if result, found, linkErr := services.taskLinks.Handle(ctx, request.Context, request.ActionKey, request.Body); found {
 		if linkErr != nil {
 			return actionFailure(linkErr)
@@ -226,14 +239,25 @@ func (r *Runtime) OnEvent(ctx context.Context, event *pluginsdk.Event) error {
 
 // InvokeAgentTool implements pluginsdk.AgentToolPlugin.
 func (r *Runtime) InvokeAgentTool(ctx context.Context, request *pluginsdk.AgentToolRequest) (*pluginsdk.AgentToolResult, error) {
-	if request == nil || request.Name != CreatePullRequestTool {
+	if request == nil {
 		return toolError("unknown tool"), nil
 	}
 	services, err := r.ready()
 	if err != nil {
 		return toolError("the Azure DevOps plugin is starting; try again"), nil
 	}
-	return services.taskLinks.InvokeCreatePullRequest(ctx, request), nil
+	switch request.Name {
+	case CreatePullRequestTool:
+		return services.taskLinks.InvokeCreatePullRequest(ctx, request), nil
+	case LinkPullRequestTool:
+		return services.taskLinks.InvokeLinkPullRequest(ctx, request), nil
+	case SaveRemediationDraftTool:
+		return services.autoFix.InvokeSaveRemediationDraft(ctx, request), nil
+	case ReplyPullRequestThreadTool:
+		return services.autoFix.InvokeReplyPullRequestThread(ctx, request), nil
+	default:
+		return toolError("unknown tool"), nil
+	}
 }
 
 // SearchEntityReferences implements pluginsdk.EntityReferenceSearcher.

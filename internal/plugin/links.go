@@ -17,6 +17,7 @@ const (
 	taskLinkKeyPrefix       = "task."
 	pullRequestLinksSuffix  = ".pullRequests"
 	workItemLinksSuffix     = ".workItems"
+	prAutoFixStateSuffix    = ".prAutoFix"
 	maxLinksPerTaskAndKind  = 50
 	errTaskLinkLimitMessage = "a task can hold at most 50 links of each kind"
 )
@@ -216,6 +217,9 @@ func (l *Links) DeleteTask(ctx context.Context, workspaceID, taskID string) erro
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.store.DeleteState(ctx, workspaceID, pullRequestLinksKey(taskID)); err != nil {
+		return err
+	}
+	if err := l.store.DeleteState(ctx, workspaceID, taskLinkKeyPrefix+taskID+prAutoFixStateSuffix); err != nil {
 		return err
 	}
 	return l.store.DeleteState(ctx, workspaceID, workItemLinksKey(taskID))

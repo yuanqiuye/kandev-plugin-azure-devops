@@ -54,10 +54,12 @@ type ActionPreset struct {
 
 // WorkspaceSettings are the effective presets: overrides or the defaults.
 type WorkspaceSettings struct {
-	WorkItemQueries    []QueryPreset  `json:"workItemQueries"`
-	PullRequestQueries []QueryPreset  `json:"pullRequestQueries"`
-	WorkItemActions    []ActionPreset `json:"workItemActions"`
-	PullRequestActions []ActionPreset `json:"pullRequestActions"`
+	WorkItemQueries                 []QueryPreset  `json:"workItemQueries"`
+	PullRequestQueries              []QueryPreset  `json:"pullRequestQueries"`
+	WorkItemActions                 []ActionPreset `json:"workItemActions"`
+	PullRequestActions              []ActionPreset `json:"pullRequestActions"`
+	AutoFixEnabledByDefault         bool           `json:"autoFixEnabledByDefault"`
+	AutoFixRequireApprovalByDefault bool           `json:"autoFixRequireApprovalByDefault"`
 }
 
 // DefaultWorkItemQueryPresets mirrors the built-in integration's defaults.
@@ -200,12 +202,26 @@ func (c *Connections) Settings(ctx context.Context, workspaceID string) (Workspa
 	settings := WorkspaceSettings{
 		WorkItemQueries: DefaultWorkItemQueryPresets(), PullRequestQueries: DefaultPullRequestQueryPresets(),
 		WorkItemActions: DefaultWorkItemActionPresets(), PullRequestActions: DefaultPullRequestActionPresets(),
+		AutoFixEnabledByDefault: true, AutoFixRequireApprovalByDefault: true,
 	}
 	decodeOverride(overrides, "workItemQueries", &settings.WorkItemQueries)
 	decodeOverride(overrides, "pullRequestQueries", &settings.PullRequestQueries)
 	decodeOverride(overrides, "workItemActions", &settings.WorkItemActions)
 	decodeOverride(overrides, "pullRequestActions", &settings.PullRequestActions)
+	decodeBoolOverride(overrides, "autoFixEnabledByDefault", &settings.AutoFixEnabledByDefault)
+	decodeBoolOverride(overrides, "autoFixRequireApprovalByDefault", &settings.AutoFixRequireApprovalByDefault)
 	return settings, nil
+}
+
+func decodeBoolOverride(overrides settingsOverrides, key string, target *bool) {
+	raw, ok := overrides[key]
+	if !ok || len(raw) == 0 {
+		return
+	}
+	var value bool
+	if json.Unmarshal(raw, &value) == nil {
+		*target = value
+	}
 }
 
 func decodeOverride[T any](overrides settingsOverrides, key string, target *[]T) {
@@ -246,6 +262,8 @@ func applySettingsPatch(overrides settingsOverrides, patch map[string]json.RawMe
 			err = patchPresets(overrides, key, raw, normalizeQueryPresets)
 		case "workItemActions", "pullRequestActions":
 			err = patchPresets(overrides, key, raw, normalizeActionPresets)
+		case "autoFixEnabledByDefault", "autoFixRequireApprovalByDefault":
+			err = patchBoolSetting(overrides, key, raw)
 		default:
 			err = fmt.Errorf("unknown workspace setting %q", key)
 		}
@@ -270,6 +288,23 @@ func patchPresets[T any](overrides settingsOverrides, key string, raw json.RawMe
 		return fmt.Errorf("%s must include a valid preset", key)
 	}
 	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return err
+	}
+	overrides[key] = encoded
+	return nil
+}
+
+func patchBoolSetting(overrides settingsOverrides, key string, raw json.RawMessage) error {
+	if string(raw) == "null" {
+		delete(overrides, key)
+		return nil
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return fmt.Errorf("%s must be a boolean", key)
+	}
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}

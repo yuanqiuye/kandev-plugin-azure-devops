@@ -27,9 +27,13 @@ type Host struct {
 	steps            map[string][]pluginsdk.WorkflowStep
 	agentProfiles    []pluginsdk.AgentProfile
 	executorProfiles []pluginsdk.ExecutorProfile
+	sessions         []pluginsdk.Session
+	sentMessages     []SentMessage
 
 	// FailCreateTask, when set, is returned by Tasks().Create.
 	FailCreateTask error
+	// FailSendMessage, when set, is returned by Messages().Send.
+	FailSendMessage error
 
 	// FailSetState, when set, makes SetState fail for that key.
 	FailSetState string

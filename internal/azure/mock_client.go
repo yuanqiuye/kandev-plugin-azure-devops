@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // MockState is the deterministic E2E data exposed by MockClient.
@@ -521,6 +522,102 @@ func (c *MockClient) ListThreads(_ context.Context, _, _ string, id int) ([]Thre
 		return []Thread{}, nil
 	}
 	return feedback.Threads, nil
+}
+
+func (c *MockClient) ReplyToThread(_ context.Context, _, _ string, pullRequestID, threadID int, content string) (*Comment, error) {
+	trimmed := strings.TrimSpace(content)
+	if pullRequestID <= 0 || threadID <= 0 || trimmed == "" {
+		return nil, fmt.Errorf("%w: pull request id, thread id, and content are required", ErrInvalidConfig)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	feedback, ok := c.state.Feedback[pullRequestID]
+	if !ok {
+		return nil, mockNotFound("pull request", pullRequestID)
+	}
+	for index := range feedback.Threads {
+		thread := &feedback.Threads[index]
+		if thread.ID != threadID {
+			continue
+		}
+		nextID := 1
+		parentID := 0
+		for _, existing := range thread.Comments {
+			if existing.ID >= nextID {
+				nextID = existing.ID + 1
+			}
+			if parentID == 0 && existing.ParentID == 0 {
+				parentID = existing.ID
+			}
+		}
+		now := time.Now().UTC()
+		comment := Comment{
+			ID:          nextID,
+			ParentID:    parentID,
+			Content:     trimmed,
+			Author:      Identity{ID: c.state.User.ID, DisplayName: c.state.User.DisplayName, UniqueName: c.state.User.Email},
+			CommentType: "text",
+			PublishedAt: now,
+			UpdatedAt:   now,
+		}
+		thread.Comments = append(thread.Comments, comment)
+		c.state.Feedback[pullRequestID] = feedback
+		return &comment, nil
+	}
+	return nil, mockNotFound("thread", threadID)
+}
+
+func (c *MockClient) CreateThread(_ context.Context, _, _ string, pullRequestID int, content string) (*Thread, error) {
+	trimmed := strings.TrimSpace(content)
+	if pullRequestID <= 0 || trimmed == "" {
+		return nil, fmt.Errorf("%w: pull request id and content are required", ErrInvalidConfig)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	feedback := c.state.Feedback[pullRequestID]
+	nextThreadID := 1
+	for _, existing := range feedback.Threads {
+		if existing.ID >= nextThreadID {
+			nextThreadID = existing.ID + 1
+		}
+	}
+	now := time.Now().UTC()
+	thread := Thread{
+		ID:     nextThreadID,
+		Status: "active",
+		Comments: []Comment{{
+			ID:          1,
+			Content:     trimmed,
+			Author:      Identity{ID: c.state.User.ID, DisplayName: c.state.User.DisplayName, UniqueName: c.state.User.Email},
+			CommentType: "text",
+			PublishedAt: now,
+			UpdatedAt:   now,
+		}},
+	}
+	feedback.Threads = append(feedback.Threads, thread)
+	c.state.Feedback[pullRequestID] = feedback
+	return &thread, nil
+}
+
+func (c *MockClient) UpdateThreadStatus(_ context.Context, _, _ string, pullRequestID, threadID int, status string) error {
+	canonical, err := NormalizeThreadStatus(status)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	feedback, ok := c.state.Feedback[pullRequestID]
+	if !ok {
+		return mockNotFound("pull request", pullRequestID)
+	}
+	for index := range feedback.Threads {
+		if feedback.Threads[index].ID == threadID {
+			feedback.Threads[index].Status = canonical
+			c.state.Feedback[pullRequestID] = feedback
+			return nil
+		}
+	}
+	return mockNotFound("thread", threadID)
 }
 
 func (c *MockClient) ListLinkedWorkItems(_ context.Context, _, _ string, id int) ([]WorkItemRef, error) {

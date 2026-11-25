@@ -14,6 +14,9 @@ import (
 // CreatePullRequestTool is the manifest name of the agent pull request tool.
 const CreatePullRequestTool = "create_pull_request"
 
+// LinkPullRequestTool links an existing Azure Repos pull request to the agent's task.
+const LinkPullRequestTool = "link_pull_request"
+
 type createPullRequestArguments struct {
 	Title        string `json:"title"`
 	Description  string `json:"description"`
@@ -146,4 +149,124 @@ func (t *TaskLinks) taskBaseBranch(ctx context.Context, taskID, hostRepositoryID
 		}
 	}
 	return ""
+}
+
+type linkPullRequestArguments struct {
+	Reference     string `json:"reference"`
+	PullRequestID int    `json:"pullRequestId"`
+	SourceBranch  string `json:"sourceBranch"`
+	TargetBranch  string `json:"targetBranch"`
+	Repository    string `json:"repository"`
+}
+
+// InvokeLinkPullRequest links an already-opened Azure Repos pull request to the
+// current task by URL/reference, pullRequestId, or active sourceBranch lookup.
+func (t *TaskLinks) InvokeLinkPullRequest(ctx context.Context, request *pluginsdk.AgentToolRequest) *pluginsdk.AgentToolResult {
+	var arguments linkPullRequestArguments
+	if err := decodeJSONMap(request.Arguments, &arguments); err != nil {
+		return toolError("the arguments are not valid: %v", err)
+	}
+	workspaceID, taskID := request.Context.WorkspaceID, request.Context.TaskID
+	if workspaceID == "" || taskID == "" {
+		return toolError("this tool only works inside a Kandev task")
+	}
+	refText := strings.TrimSpace(arguments.Reference)
+	sourceBranch := trimHeads(arguments.SourceBranch)
+	targetBranch := trimHeads(arguments.TargetBranch)
+	repoArg := strings.TrimSpace(arguments.Repository)
+
+	if refText == "" && arguments.PullRequestID <= 0 && sourceBranch == "" {
+		return toolError("pass reference (PR URL or Project/Repository!ID), pullRequestId, or sourceBranch to identify the pull request")
+	}
+
+	if refText != "" || (arguments.PullRequestID > 0 && repoArg == "") {
+		link, err := t.linkPullRequest(ctx, workspaceID, taskID, taskLinkInput{
+			Reference:     refText,
+			PullRequestID: arguments.PullRequestID,
+		})
+		if err != nil {
+			return toolError("the pull request could not be linked: %s", publicMessage(err))
+		}
+		return linkedPullRequestToolResult(link)
+	}
+
+	client, connection, err := t.connections.Client(ctx, workspaceID)
+	if err != nil {
+		return toolError("Azure DevOps is not connected for this workspace: %s", publicMessage(err))
+	}
+	repositories, err := t.taskRepositories(ctx, client, workspaceID, taskID, connection.OrganizationURL)
+	if err != nil {
+		return toolError("the task repositories could not be read: %s", publicMessage(err))
+	}
+	repository, err := selectRepository(repositories, repoArg)
+	if err != nil {
+		return toolError("%s", err.Error())
+	}
+
+	if arguments.PullRequestID > 0 {
+		link, linkErr := t.linkPullRequest(ctx, workspaceID, taskID, taskLinkInput{
+			ProjectID:     repository.ProjectID,
+			RepositoryID:  repository.RepositoryID,
+			PullRequestID: arguments.PullRequestID,
+		})
+		if linkErr != nil {
+			return toolError("the pull request could not be linked: %s", publicMessage(linkErr))
+		}
+		return linkedPullRequestToolResult(link)
+	}
+
+	page, err := client.ListPullRequests(ctx, azure.PullRequestFilter{
+		ProjectID:    repository.ProjectID,
+		RepositoryID: repository.RepositoryID,
+		Status:       "active",
+		SourceBranch: sourceBranch,
+		TargetBranch: targetBranch,
+		Top:          20,
+	})
+	if err != nil {
+		return toolError("active pull requests could not be listed: %s", publicMessage(browseError(err)))
+	}
+	var matches []azure.PullRequest
+	for _, candidate := range page.Items {
+		if candidate.SourceBranch != sourceBranch {
+			continue
+		}
+		if targetBranch != "" && candidate.TargetBranch != targetBranch {
+			continue
+		}
+		matches = append(matches, candidate)
+	}
+	switch len(matches) {
+	case 0:
+		return toolError("no active pull request was found for sourceBranch %q in %s/%s", sourceBranch, repository.ProjectName, repository.RepositoryName)
+	case 1:
+		pr := matches[0]
+		link := pullRequestLinkFrom(pr)
+		link.Organization = strings.ToLower(repository.Organization)
+		if _, err := t.links.AddPullRequest(ctx, workspaceID, taskID, link); err != nil {
+			return toolError("the pull request could not be linked to the task")
+		}
+		return linkedPullRequestToolResult(link)
+	default:
+		choices := make([]string, 0, len(matches))
+		for _, m := range matches {
+			choices = append(choices, fmt.Sprintf("!%d (%s -> %s)", m.ID, m.SourceBranch, m.TargetBranch))
+		}
+		return toolError("multiple active pull requests match branch %q (%s); pass pullRequestId or targetBranch", sourceBranch, strings.Join(choices, ", "))
+	}
+}
+
+func linkedPullRequestToolResult(link PullRequestLink) *pluginsdk.AgentToolResult {
+	text := fmt.Sprintf("Linked pull request !%d to the current task: %s", link.PullRequestID, link.URL)
+	return &pluginsdk.AgentToolResult{
+		Text: text,
+		StructuredContent: map[string]any{
+			"pullRequestId": link.PullRequestID,
+			"url":           link.URL,
+			"repository":    link.RepositoryName,
+			"sourceBranch":  link.SourceBranch,
+			"targetBranch":  link.TargetBranch,
+			"linked":        true,
+		},
+	}
 }

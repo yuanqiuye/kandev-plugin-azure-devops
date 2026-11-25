@@ -212,9 +212,11 @@ export type AzureDevOpsReviewer = AzureDevOpsIdentity & {
 
 export type AzureDevOpsComment = {
   id: number;
+  parentCommentId?: number;
   content: string;
   author: AzureDevOpsIdentity;
   commentType: string;
+  isDeleted?: boolean;
   publishedAt?: string;
   updatedAt?: string;
 };
@@ -222,6 +224,9 @@ export type AzureDevOpsComment = {
 export type AzureDevOpsThread = {
   id: number;
   status: string;
+  filePath?: string;
+  line?: number;
+  isDeleted?: boolean;
   comments: AzureDevOpsComment[];
 };
 
@@ -232,6 +237,9 @@ export type AzureDevOpsPolicyEvaluation = {
   status: string;
   name: string;
   isBlocking: boolean;
+  buildId?: number;
+  buildUrl?: string;
+  output?: string;
 };
 
 export type AzureDevOpsPullRequestFeedback = {
@@ -264,6 +272,8 @@ export type AzureDevOpsWorkspaceSettings = {
   pullRequestQueries: AzureDevOpsQueryPreset[];
   workItemActions: AzureDevOpsActionPreset[];
   pullRequestActions: AzureDevOpsActionPreset[];
+  autoFixEnabledByDefault?: boolean;
+  autoFixRequireApprovalByDefault?: boolean;
 };
 
 export type AzureDevOpsPullRequestListPage = {

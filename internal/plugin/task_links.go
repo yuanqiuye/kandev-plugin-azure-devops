@@ -23,10 +23,12 @@ type TaskReader interface {
 // TaskLinks serves task links, linked pull request status, and pull request
 // creation for verified task contexts.
 type TaskLinks struct {
-	connections  *Connections
-	links        *Links
-	tasks        func() TaskReader
-	repositories func() RepositoryLister
+	connections         *Connections
+	links               *Links
+	tasks               func() TaskReader
+	repositories        func() RepositoryLister
+	onUnlinkPullRequest func(ctx context.Context, workspaceID, taskID, repositoryID string, pullRequestID int) error
+	autoFixStatus       func(ctx context.Context, workspaceID, taskID string, link PullRequestLink) string
 }
 
 // NewTaskLinks returns the task links service.
@@ -112,6 +114,9 @@ func (t *TaskLinks) handleTaskAction(ctx context.Context, workspaceID, taskID, k
 			return nil, invalidArgument(errors.New("a repository and pull request number are required"))
 		}
 		links, err := t.links.RemovePullRequest(ctx, workspaceID, taskID, input.RepositoryID, input.PullRequestID)
+		if err == nil && t.onUnlinkPullRequest != nil {
+			_ = t.onUnlinkPullRequest(ctx, workspaceID, taskID, input.RepositoryID, input.PullRequestID)
+		}
 		return map[string]any{"pullRequests": links}, unavailableIf(err)
 	case "work_items.link":
 		link, err := t.linkWorkItem(ctx, workspaceID, taskID, input)
@@ -147,7 +152,11 @@ func (t *TaskLinks) status(ctx context.Context, workspaceID, taskID string) (any
 	}
 	statuses := make([]PullRequestStatus, len(pullRequests))
 	for index, link := range pullRequests {
-		statuses[index] = PullRequestStatus{PullRequestLink: link}
+		autoStatus := ""
+		if t.autoFixStatus != nil {
+			autoStatus = t.autoFixStatus(ctx, workspaceID, taskID, link)
+		}
+		statuses[index] = PullRequestStatus{PullRequestLink: link, AutoFixStatus: autoStatus}
 	}
 	if len(pullRequests) > 0 {
 		client, _, err := t.connections.Client(ctx, workspaceID)

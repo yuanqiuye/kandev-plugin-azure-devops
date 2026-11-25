@@ -23,6 +23,7 @@ import { type Translate, usePluginTranslation } from "./i18n";
 import { type MicrosoftSignIn, useMicrosoftSignIn } from "./microsoft-sign-in";
 import { AzureDevOpsDefaultQueriesSection } from "./browse/default-queries";
 import { AzureDevOpsQuickActionsSection } from "./browse/quick-actions";
+import { AzureDevOpsAutoFixSettings } from "./tasks/autofix-settings";
 import { AzureDevOpsWatchSettings } from "./watches/watch-settings";
 
 /** Health refresh while the settings page is open, matching built-in integrations. */
@@ -728,6 +729,7 @@ function WorkspaceConnection({ host, workspaceId }: { host: PluginHostApi; works
       ),
     ),
     host.jsx(CopySection, { host, t, sources: controller.sources, busy, onCopy: controller.copy, mobile }),
+    connection ? host.jsx(AzureDevOpsAutoFixSettings, { workspaceId }) : null,
     connection ? host.jsx(AzureDevOpsDefaultQueriesSection, { workspaceId }) : null,
     connection ? host.jsx(AzureDevOpsQuickActionsSection, { workspaceId }) : null,
     connection

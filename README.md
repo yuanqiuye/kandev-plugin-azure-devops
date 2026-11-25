@@ -59,10 +59,21 @@ and its changes are in [CHANGELOG.md](CHANGELOG.md).
   show their state, checks, and reviews in the task indicators and the review
   panel. **Create PR** opens an Azure Repos pull request from the task branch
   and links it, with the task's linked work items attached.
-- **References and agent tool:** the composer offers `#` references to work
-  items and pull requests. Agents get a `create_pull_request` tool that opens
-  and links a pull request from a pushed branch, without the `az` CLI or a
-  credential in their environment.
+- **Linked PR auto-fix with human review gate:** linked active pull requests
+  automatically monitor settled CI/policy failures (with build timeline errors)
+  and unresolved review threads. With **Require human approval** enabled (the
+  default), the task agent prepares uncommitted working-tree changes and saves
+  a remediation draft (`save_pr_remediation_draft`) with optional
+  commit and reply messages; a human can edit and approve them, request agent
+  revisions, or dismiss the draft in the PR review panel before any commit,
+  push, or Azure DevOps reply runs. Turning **Require human approval** off
+  permits direct replies via `reply_pull_request_thread` (keeping threads
+  `Active` by default unless marked `Fixed`).
+- **References and agent tools:** the composer offers `#` references to work
+  items and pull requests. Agents get `create_pull_request`,
+  `link_pull_request`, `save_pr_remediation_draft`, and
+  `reply_pull_request_thread` tools without the `az` CLI or a credential in
+  their environment.
 - **Watches:** work-item (WIQL) and pull-request watches create one task per
   matching item with the chosen workflow, step, agent and executor profiles,
   prompt, repository, and base branch. Watches can be run now, reset, and
