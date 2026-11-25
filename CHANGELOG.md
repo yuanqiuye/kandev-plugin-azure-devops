@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] - 2026-11-25
+
+### Added
+
+- Linked pull request auto-fix loop with human review gate (enabled by default, configurable per pull request and workspace): polls active linked pull requests for settled policy/build failures (with build timeline errors) and unresolved comment threads, lets task agents save uncommitted remediation drafts (`save_pr_remediation_draft`) for human review/editing/revision/approval before commit, push, or reply, and adds `reply_pull_request_thread` and `link_pull_request` agent tools (d0f5a48).
+
 ## [0.3.1] - 2026-11-24
 
 ### Fixed
